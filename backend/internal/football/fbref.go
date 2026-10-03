@@ -97,7 +97,9 @@ func readFBrefCSV(dir, name string, required ...string) (*csvTable, error) {
 // LoadFBref reads the CSV folder and computes per-club metrics, league averages and ranks.
 func LoadFBref(dir string) (*FBrefSeason, error) {
 	tables := map[string]*csvTable{}
-	need := map[string][]string{"times_padrao": {"Squad", "Playing Time_MP"}, "classificacao_casa_fora": {"Squad"}, "classificacao": {"Squad", "Attendance"}, "jogos": {"Home", "Away", "Score", "Venue", "Date"}, "jogadores_padrao": {"Player", "Squad", "Performance_Gls", "Performance_Ast"}, "goleiros": {"Player", "Squad", "Playing Time_Min"}}
+	need := map[string][]string{"times_padrao": {"Squad", "Playing Time_MP"}, "classificacao_casa_fora": {"Squad"}, "classificacao": {"Squad", "Attendance"}, "jogos": {"Home", "Away", "Score", "Venue", "Date"}, "jogadores_padrao": {"Player", "Squad", "Performance_Gls", "Performance_Ast", "Performance_CrdY", "Performance_CrdR"}, "goleiros": {"Player", "Squad", "Playing Time_Min"},
+		"jogadores_tempo_jogo":  {"Player", "Squad", "Playing Time_Min", "Playing Time_Min%", "Team Success_+/-90", "Team Success_On-Off", "Team Success_PPM"},
+		"jogadores_finalizacao": {"Player", "Squad", "Standard_Gls", "Standard_Sh", "Standard_SoT", "Standard_SoT%", "Standard_G/Sh"}}
 	for _, m := range fbrefMetrics {
 		need[m.file] = append(need[m.file], "Squad", m.column)
 	}
@@ -222,6 +224,58 @@ func LoadFBref(dir string) (*FBrefSeason, error) {
 			}
 		}
 	}
+	// On-pitch impact: regulars (40%+ of the minutes) with the largest on/off difference.
+	impact := map[string]map[string]KeyPlayer{}
+	tempo := tables["jogadores_tempo_jogo"]
+	for _, row := range tempo.rows {
+		squad, name := tempo.get(row, "Squad"), tempo.get(row, "Player")
+		if s.clubs[squad] == nil || !validDataName(name) || tempo.get(row, "Team Success_On-Off") == "" {
+			continue
+		}
+		k := KeyPlayer{Player: name, Position: tempo.get(row, "Pos"), Minutes: int(tempo.num(row, "Playing Time_Min")), MinutesPct: tempo.num(row, "Playing Time_Min%"),
+			PlusMinus90: tempo.num(row, "Team Success_+/-90"), OnOff: tempo.num(row, "Team Success_On-Off"), PointsPerMatch: tempo.num(row, "Team Success_PPM")}
+		if impact[squad] == nil {
+			impact[squad] = map[string]KeyPlayer{}
+		}
+		impact[squad][name] = k
+		if k.MinutesPct >= 40 {
+			s.clubs[squad].KeyPlayers = append(s.clubs[squad].KeyPlayers, k)
+		}
+	}
+	// Finishers: players with at least 10 shots, by goals then goals per shot.
+	finishing := tables["jogadores_finalizacao"]
+	for _, row := range finishing.rows {
+		c, name := s.clubs[finishing.get(row, "Squad")], finishing.get(row, "Player")
+		if c == nil || !validDataName(name) || finishing.num(row, "Standard_Sh") < 10 {
+			continue
+		}
+		c.Finishers = append(c.Finishers, Finisher{Player: name, Goals: int(finishing.num(row, "Standard_Gls")), Shots: int(finishing.num(row, "Standard_Sh")), ShotsOnTarget: int(finishing.num(row, "Standard_SoT")), Accuracy: finishing.num(row, "Standard_SoT%"), GoalsPerShot: finishing.num(row, "Standard_G/Sh")})
+	}
+	for squad, c := range s.clubs {
+		sort.SliceStable(c.KeyPlayers, func(i, j int) bool { return c.KeyPlayers[i].OnOff > c.KeyPlayers[j].OnOff })
+		c.KeyPlayers = c.KeyPlayers[:min(5, len(c.KeyPlayers))]
+		sort.SliceStable(c.Finishers, func(i, j int) bool {
+			a, b := c.Finishers[i], c.Finishers[j]
+			if a.Goals != b.Goals {
+				return a.Goals > b.Goals
+			}
+			return a.GoalsPerShot > b.GoalsPerShot
+		})
+		c.Finishers = c.Finishers[:min(5, len(c.Finishers))]
+		// Bookings for every player with a card, with impact for weighing a suspension.
+		for _, row := range players.rows {
+			if players.get(row, "Squad") != squad {
+				continue
+			}
+			name := players.get(row, "Player")
+			y, r := int(players.num(row, "Performance_CrdY")), int(players.num(row, "Performance_CrdR"))
+			if !validDataName(name) || (y == 0 && r == 0) {
+				continue
+			}
+			k := impact[squad][name]
+			c.Bookings = append(c.Bookings, PlayerBookings{Player: name, Yellow: y, Red: r, OnOff: k.OnOff, MinutesPct: k.MinutesPct})
+		}
+	}
 	keepers := tables["goleiros"]
 	minutes := map[string]float64{}
 	for _, row := range keepers.rows {
@@ -270,6 +324,9 @@ func (s *FBrefSeason) Season(team Team) (*SeasonStats, bool) {
 	}
 	out := *best
 	out.Metrics = append([]SeasonMetric(nil), best.Metrics...)
+	out.KeyPlayers = append([]KeyPlayer(nil), best.KeyPlayers...)
+	out.Finishers = append([]Finisher(nil), best.Finishers...)
+	out.Bookings = append([]PlayerBookings(nil), best.Bookings...)
 	clone := func(p *SplitRecord) *SplitRecord {
 		if p == nil {
 			return nil

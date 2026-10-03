@@ -16,15 +16,19 @@ export interface SeasonAverages { matches: number; possession: number; shots: nu
 export interface HistorySeason extends MatchRecord { season: number; position?: number; points: number; coaches?: { name: string; matches: number }[]; formation?: string; stadium?: string; averages?: SeasonAverages }
 export interface HistoryScorer { player: string; goals: number; penalties?: number; seasons: string }
 export interface HistoryDiscipline { first_season: number; last_season: number; yellow: number; red: number; most_booked: { player: string; yellow: number; red: number }[] }
-export interface Snapshot { team: Team; recent_matches: Match[]; trophies: Trophy[]; squad: Player[]; recent_form: RecentForm; standings: Standing[]; history?: ClubHistory; data_source: string; data_notice: string; data_metadata?: DataMetadata; next_match?: Fixture; season_stats?: SeasonStats; next_opponent_season?: SeasonStats; next_opponent_recent?: Match[] }
+export interface Snapshot { team: Team; recent_matches: Match[]; trophies: Trophy[]; squad: Player[]; recent_form: RecentForm; standings: Standing[]; history?: ClubHistory; data_source: string; data_notice: string; data_metadata?: DataMetadata; next_match?: Fixture; season_stats?: SeasonStats; next_opponent_season?: SeasonStats; next_opponent_recent?: Match[]; next_match_availability?: MatchAvailability }
 // A scheduled match with no result yet; time is the published local kick-off, when known.
 export interface Fixture { competition: string; round?: string; date: string; time?: string; home_team: Team; away_team: Team }
 // League-season totals from a dated local source; per-match metrics are already averaged.
 export interface SeasonMetric { key: string; group: 'attack' | 'defense' | 'discipline'; value: number; league: number; rank: number; clubs: number; lower_is_better?: boolean }
 export interface SplitRecord { played: number; wins: number; draws: number; losses: number; goals_for: number; goals_against: number; points: number; points_per_match: number }
-export interface SeasonStats { source: string; source_url: string; as_of: string; team: string; matches: number; metrics: SeasonMetric[]; home?: SplitRecord; away?: SplitRecord; stadium?: string; average_attendance?: number; top_scorer?: { player: string; value: number }; top_assists?: { player: string; value: number }; goalkeeper?: { player: string; matches: number; save_pct: number; clean_sheets: number } }
+export interface SeasonStats { source: string; source_url: string; as_of: string; team: string; matches: number; metrics: SeasonMetric[]; home?: SplitRecord; away?: SplitRecord; stadium?: string; average_attendance?: number; top_scorer?: { player: string; value: number }; top_assists?: { player: string; value: number }; goalkeeper?: { player: string; matches: number; save_pct: number; clean_sheets: number }; key_players?: KeyPlayer[]; finishers?: Finisher[] }
+export interface KeyPlayer { player: string; position?: string; minutes: number; minutes_pct: number; plus_minus_90: number; on_off: number; points_per_match: number }
+export interface Finisher { player: string; goals: number; shots: number; shots_on_target: number; accuracy_pct: number; goals_per_shot: number }
+export interface Availability { suspended: { player: string; reason: string; minutes_pct?: number; on_off?: number }[]; at_risk: string[]; note?: string }
+export interface MatchAvailability { club?: Availability; opponent?: Availability }
 // Monte Carlo estimate for the next fixture from the selected club's side (percentages 0–100).
-export interface SimulationFactor { key: string; club: number; opponent: number; detail: string; available: boolean }
+export interface SimulationFactor { key: string; club: number; opponent: number; detail: string; available: boolean; club_value?: number; opponent_value?: number }
 export interface Simulation { runs: number; seed: number; fixture: Fixture; club_id: string; win_pct: number; draw_pct: number; loss_pct: number; expected_goals_club: number; expected_goals_opponent: number; top_scorelines: { club: number; opponent: number; percent: number }[]; factors: SimulationFactor[]; club_last5: string[]; opponent_last5: string[]; notes: string[] }
 export interface ChatAnswer { answer: string; sources_used: string[] }
 export interface Health { status: string; ollama: boolean; football_provider: boolean; data_source: string }

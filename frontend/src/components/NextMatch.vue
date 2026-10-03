@@ -1,12 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Fixture, Match, SeasonStats } from '../types/football'
+import type { Availability, Fixture, Match, MatchAvailability, SeasonStats } from '../types/football'
 import { formatWeekday, outcome, outcomeLabel, outcomeLetter, relativeDay, roundLabel } from '../utils/format'
 import MatchSimulation from './MatchSimulation.vue'
 import { formatMetric, metric, metricInfo, recordLine } from '../utils/season'
 import TeamBadge from './TeamBadge.vue'
 
-const props = defineProps<{ fixture?: Fixture; teamId: string; season?: SeasonStats; opponentSeason?: SeasonStats; recent?: Match[]; opponentRecent?: Match[] }>()
+const props = defineProps<{ fixture?: Fixture; teamId: string; season?: SeasonStats; opponentSeason?: SeasonStats; recent?: Match[]; opponentRecent?: Match[]; availability?: MatchAvailability }>()
+const suspendedLine = (a?: Availability) => a ? (a.suspended.length ? a.suspended.map((s) => s.player).join(', ') : 'Nenhum') : '—'
+// Most used first (sorted by the API); the rest are summarized to keep the row short.
+const AT_RISK_SHOWN = 4
+const atRiskLine = (a?: Availability) => {
+  if (!a) return '—'
+  if (!a.at_risk.length) return 'Nenhum'
+  const rest = a.at_risk.length - AT_RISK_SHOWN
+  return a.at_risk.slice(0, AT_RISK_SHOWN).join(', ') + (rest > 0 ? ` +${rest}` : '')
+}
 defineEmits<{ explain: [question: string] }>()
 const home = computed(() => props.fixture?.home_team.id === props.teamId)
 const club = computed(() => props.fixture && (home.value ? props.fixture.home_team : props.fixture.away_team))
@@ -64,6 +73,18 @@ const preview = computed(() => {
               <th scope="row">Pts/jogo {{ home ? 'em casa × fora' : 'fora × em casa' }}</th>
               <td :class="{ better: preview.theirSplit.points_per_match > preview.ourSplit.points_per_match }">{{ preview.theirSplit.points_per_match.toLocaleString('pt-BR') }} <small>{{ recordLine(preview.theirSplit) }}</small></td>
             </tr>
+            <template v-if="availability">
+              <tr class="text-row">
+                <td :class="{ warn: availability.club?.suspended.length }">{{ suspendedLine(availability.club) }}</td>
+                <th scope="row">Suspensos</th>
+                <td :class="{ warn: availability.opponent?.suspended.length }">{{ suspendedLine(availability.opponent) }}</td>
+              </tr>
+              <tr class="text-row">
+                <td :title="availability.club?.at_risk.join(', ')">{{ atRiskLine(availability.club) }}</td>
+                <th scope="row"><abbr title="Com mais um amarelo ficam suspensos">Pendurados</abbr></th>
+                <td :title="availability.opponent?.at_risk.join(', ')">{{ atRiskLine(availability.opponent) }}</td>
+              </tr>
+            </template>
             <tr v-for="r in preview.rows" :key="r.key">
               <td :class="{ better: r.better === 'ours' }">{{ r.ours }}</td>
               <th scope="row">{{ r.label }}</th>
@@ -71,6 +92,7 @@ const preview = computed(() => {
             </tr>
           </tbody>
         </table>
+        <p v-if="availability" class="availability-note">Suspensões estimadas pelos cartões do Brasileirão (vermelho ou a cada 3 amarelos); decisões do STJD e lesões não entram.<template v-if="availability.club?.note || availability.opponent?.note"> {{ [availability.club?.note, availability.opponent?.note].filter(Boolean).join(' ') }}</template></p>
       </div>
       <MatchSimulation :fixture="fixture" :team-id="teamId" @explain="$emit('explain', $event)" />
     </div>
@@ -105,6 +127,10 @@ tbody tr + tr > * { border-top: 1px solid var(--line); }
 td.better { color: var(--accent); }
 .seq { display: inline-flex; gap: 3px; }
 .seq.end { justify-content: flex-end; }
+tr.text-row td { font-weight: 500; font-size: var(--fs-xs); line-height: 1.5; overflow-wrap: anywhere; white-space: normal; }
+tr.text-row td.warn { color: var(--warn); }
+abbr { text-decoration: none; }
+.availability-note { font-size: var(--fs-2xs); color: var(--text-3); margin-top: var(--s-2); line-height: 1.5; }
 td small { display: block; font-size: var(--fs-2xs); font-weight: 400; color: var(--text-3); }
 @container (max-width: 480px) {
   .seq { gap: 2px; }

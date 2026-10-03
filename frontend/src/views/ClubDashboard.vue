@@ -51,7 +51,7 @@ function goToChat() {
       <div v-else-if="data" :key="data.team.id" class="content">
         <TeamHeader :team="data.team" :position="position" :competition="data.data_metadata?.competition" />
         <DataSources :notice="data.data_notice" :metadata="data.data_metadata" />
-        <NextMatch :fixture="data.next_match" :team-id="data.team.id" :season="data.season_stats" :opponent-season="data.next_opponent_season" :recent="data.recent_matches" :opponent-recent="data.next_opponent_recent" @explain="askChat" />
+        <NextMatch :fixture="data.next_match" :team-id="data.team.id" :season="data.season_stats" :opponent-season="data.next_opponent_season" :recent="data.recent_matches" :opponent-recent="data.next_opponent_recent" :availability="data.next_match_availability" @explain="askChat" />
         <RecentForm :form="data.recent_form" />
         <RecentMatches :matches="data.recent_matches" :team-id="data.team.id" />
         <SeasonStats v-if="data.season_stats" :stats="data.season_stats" />

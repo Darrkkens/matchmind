@@ -16,7 +16,9 @@ var fbrefFixture = map[string]string{
 	"classificacao_casa_fora":       "Rk,Squad,Home_MP,Home_W,Home_D,Home_L,Home_GF,Home_GA,Home_GD,Home_Pts,Away_MP,Away_W,Away_D,Away_L,Away_GF,Away_GA,Away_GD,Away_Pts\n1,Alpha FC,5,4,1,0,12,3,9,13,5,2,1,2,8,5,3,7\n2,Atlético Mineiro,5,2,2,1,6,4,2,8,5,1,1,3,4,4,0,4\n",
 	"classificacao":                 "Rk,Squad,Attendance\n1,Alpha FC,30000\n2,Atlético Mineiro,\n",
 	"jogos":                         "Wk,Date,Home,Score,Away,Venue\n1,2026-05-01,Alpha FC,2–0,Atlético Mineiro,Alpha Arena\n2,2026-05-08,Alpha FC,1–1,Atlético Mineiro,Other Ground\n3,2026-05-15,Alpha FC,3–1,Atlético Mineiro,Alpha Arena\n4,2026-06-01,Atlético Mineiro,,Alpha FC,Arena MRV\n",
-	"jogadores_padrao":              "Player,Squad,Performance_Gls,Performance_Ast\nAna,Alpha FC,9,2\nBia,Alpha FC,4,6\nCaio,Atlético Mineiro,0,0\n",
+	"jogadores_padrao":              "Player,Squad,Performance_Gls,Performance_Ast,Performance_CrdY,Performance_CrdR\nAna,Alpha FC,9,2,3,0\nBia,Alpha FC,4,6,2,1\nCaio,Atlético Mineiro,0,0,0,0\n",
+	"jogadores_tempo_jogo":          "Player,Squad,Pos,Playing Time_Min,Playing Time_Min%,Team Success_+/-90,Team Success_On-Off,Team Success_PPM\nAna,Alpha FC,FW,800,88.9,1.2,0.9,2.1\nBia,Alpha FC,MF,500,55.6,0.4,-0.3,1.6\nDuda,Alpha FC,DF,100,11.1,2.0,1.5,2.5\n",
+	"jogadores_finalizacao":         "Player,Squad,Standard_Gls,Standard_Sh,Standard_SoT,Standard_SoT%,Standard_G/Sh\nAna,Alpha FC,9,40,18,45.0,0.23\nBia,Alpha FC,4,12,5,41.7,0.33\nCaio,Atlético Mineiro,0,4,1,25.0,0.0\n",
 	"goleiros":                      "Player,Squad,Playing Time_MP,Playing Time_Min,Performance_Save%,Performance_CS\nGil,Alpha FC,2,180,50.0,0\nHugo,Alpha FC,8,720,80.0,5\n",
 }
 
@@ -71,6 +73,16 @@ func TestFBrefSeasonMetricsRanksAndAliases(t *testing.T) {
 	}
 	if alpha.TopScorer.Player != "Ana" || alpha.TopAssists.Player != "Bia" || alpha.Goalkeeper.Player != "Hugo" || alpha.Goalkeeper.CleanSheets != 5 {
 		t.Fatalf("leaders %+v %+v %+v", alpha.TopScorer, alpha.TopAssists, alpha.Goalkeeper)
+	}
+	// Key players are regulars (40%+ minutes) by on/off; Duda (11%) is left out.
+	if len(alpha.KeyPlayers) != 2 || alpha.KeyPlayers[0].Player != "Ana" || alpha.KeyPlayers[0].OnOff != 0.9 {
+		t.Fatalf("key players %+v", alpha.KeyPlayers)
+	}
+	if len(alpha.Finishers) != 2 || alpha.Finishers[0].Player != "Ana" || alpha.Finishers[1].GoalsPerShot != 0.33 {
+		t.Fatalf("finishers %+v", alpha.Finishers)
+	}
+	if len(alpha.Bookings) != 2 || alpha.Bookings[0].Yellow != 3 || alpha.Bookings[0].OnOff != 0.9 {
+		t.Fatalf("bookings %+v", alpha.Bookings)
 	}
 	// OpenFootball spelling reaches FBref's through the shared aliases.
 	galo, ok := s.Season(Team{Name: "CA Mineiro"})

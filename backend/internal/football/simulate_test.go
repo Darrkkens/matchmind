@@ -45,7 +45,14 @@ func TestSimulateIsDeterministicAndFavorsTheStrongerSide(t *testing.T) {
 	for _, f := range a.Factors {
 		keys[f.Key] = f
 	}
-	for _, k := range []string{"season", "form", "rest", "injuries", "head_to_head", "randomness"} {
+	// The league home edge is its own factor and favors the home side (Strong plays at home).
+	if h := keys["home_edge"]; !h.Available || h.Club <= 1 || h.Opponent >= 1 {
+		t.Fatalf("home edge %+v", h)
+	}
+	if s := keys["season"]; s.ClubValue <= 0 || s.OpponentValue <= 0 {
+		t.Fatalf("base expected goals missing %+v", s)
+	}
+	for _, k := range []string{"season", "home_edge", "form", "rest", "injuries", "head_to_head", "randomness"} {
 		if _, ok := keys[k]; !ok {
 			t.Fatalf("missing factor %s", k)
 		}
@@ -112,8 +119,8 @@ func TestSimulateUsesSeasonDetailVenueAndAnalyst(t *testing.T) {
 	if f := got["venue"]; !f.Available {
 		t.Fatalf("venue %+v", f)
 	}
-	// The analyst's adjustment is clamped to ±15% whatever it asks for.
-	if f := got["ai_analyst"]; !f.Available || f.Club != 1.15 || f.Opponent != 0.85 || f.Detail != "teste" {
+	// The analyst's adjustment is clamped to ±6% whatever it asks for.
+	if f := got["ai_analyst"]; !f.Available || f.Club != 1.06 || f.Opponent != 0.94 || f.Detail != "teste" {
 		t.Fatalf("analyst %+v", f)
 	}
 }

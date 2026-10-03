@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,14 +33,24 @@ func analystServer(t *testing.T, content string) *Ollama {
 }
 
 func TestAnalyzeMatch(t *testing.T) {
-	adj, err := analystServer(t, `{"club":1.06,"opponent":0.97,"reason":"O Palmeiras sofre 0,75 gol por jogo."}`).AnalyzeMatch(context.Background(), `{"club":"A"}`)
-	if err != nil || adj.Club != 1.06 || adj.Opponent != 0.97 || adj.Model != "gemma3:4b" {
+	facts := `{"club":"Palmeiras","opponent":"Bahia","ga":0.75}`
+	adj, err := analystServer(t, `{"reason":"O Palmeiras sofre 0,75 gol por jogo.","favored":"Palmeiras","strength":"moderado"}`).AnalyzeMatch(context.Background(), facts)
+	if err != nil || adj.Club != 1.06 || adj.Opponent != 0.94 || adj.Model != "gemma3:4b" {
 		t.Fatalf("%+v %v", adj, err)
 	}
-	for _, bad := range []string{`{"club":1.0,"reason":"x"}`, `{"club":1,"opponent":1,"reason":"  "}`, `not json`} {
-		if _, err := analystServer(t, bad).AnalyzeMatch(context.Background(), `{}`); err != ErrInvalidResponse {
+	// Favoring the opponent flips the edge; "nenhum" leaves both sides unchanged.
+	adj, _ = analystServer(t, `{"reason":"O Bahia chega melhor.","favored":"Bahia","strength":"leve"}`).AnalyzeMatch(context.Background(), facts)
+	if adj.Club != 0.97 || adj.Opponent != 1.03 {
+		t.Fatalf("opponent edge %+v", adj)
+	}
+	for _, bad := range []string{`{"reason":"x","favored":"Santos","strength":"leve"}`, `{"reason":"  ","favored":"nenhum","strength":"leve"}`, `{"reason":"x","favored":"nenhum","strength":"enorme"}`, `not json`} {
+		if _, err := analystServer(t, bad).AnalyzeMatch(context.Background(), facts); err != ErrInvalidResponse {
 			t.Fatalf("%s accepted", bad)
 		}
+	}
+	// The reason must name the club it favors.
+	if _, err := analystServer(t, `{"reason":"O Bahia sofre muitos gols.","favored":"Palmeiras","strength":"leve"}`).AnalyzeMatch(context.Background(), facts); !errors.Is(err, ErrUngroundedReason) {
+		t.Fatalf("reason about the other club accepted: %v", err)
 	}
 }
 
@@ -85,5 +96,39 @@ func TestSimulationSummaryUsesFixtureOrder(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in %q", want, got)
 		}
+	}
+}
+
+func TestBuildAnalystFactsLabelsVenueRoles(t *testing.T) {
+	home, away := football.Team{ID: "h", Name: "Remo"}, football.Team{ID: "a", Name: "Grêmio"}
+	prelim := &football.Simulation{ClubID: "a", Fixture: football.Fixture{Date: "2026-10-08", HomeTeam: home, AwayTeam: away}}
+	club := &football.SeasonStats{Home: &football.SplitRecord{Played: 14, Wins: 9}, Away: &football.SplitRecord{Played: 14, Losses: 10}}
+	opp := &football.SeasonStats{Home: &football.SplitRecord{Played: 14, Wins: 3}, Away: &football.SplitRecord{Played: 14, Wins: 1}}
+	facts, _ := BuildAnalystFacts(prelim, club, opp)
+	if !strings.Contains(facts, `"match":"Remo (em casa) x Grêmio (fora)`) || !strings.Contains(facts, "Grêmio fora: 14 jogos, 0 vitórias, 0 empates, 10 derrotas") || !strings.Contains(facts, "Remo em casa: 14 jogos, 3 vitórias") || strings.Contains(facts, "Grêmio em casa") {
+		t.Fatalf("facts %s", facts)
+	}
+}
+
+func TestAnalystReasonMustCiteOnlyFactNumbers(t *testing.T) {
+	facts := `{"x":"Remo em casa: 14 jogos, 18 gols marcados","edge":"+14%","ga":0.75}`
+	if !numbersGrounded("O Remo marcou 18 gols em 14 jogos em casa; defesa 0,75 e mando 14%.", facts) {
+		t.Fatal("grounded reason rejected")
+	}
+	if numbersGrounded("O Remo tem média de 1.8 gols em casa.", facts) {
+		t.Fatal("invented number accepted")
+	}
+	if adj, err := analystServer(t, `{"reason":"O Remo marca 1.8 gols por jogo.","favored":"nenhum","strength":"leve"}`).AnalyzeMatch(context.Background(), `{"club":"Remo","opponent":"Grêmio","x":"14 jogos, 18 gols"}`); !errors.Is(err, ErrUngroundedReason) {
+		t.Fatalf("ungrounded adjustment applied: %+v %v", adj, err)
+	}
+}
+
+func TestAnalystReasonDirectionMustMatchMultipliers(t *testing.T) {
+	facts := `{"club":"CR Flamengo","opponent":"Santos FC"}`
+	if directionConsistent("Um pequeno ajuste favorece o Santos FC.", facts, 1.02, 0.94) {
+		t.Fatal("reason favoring the opponent accepted while numbers favor the club")
+	}
+	if !directionConsistent("O ajuste favorece o CR Flamengo.", facts, 1.02, 0.94) || !directionConsistent("Defesas equilibradas.", facts, 1.02, 0.94) {
+		t.Fatal("consistent reason rejected")
 	}
 }
