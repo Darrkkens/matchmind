@@ -40,6 +40,7 @@ func New(teams *service.TeamService, chat *service.ChatService, origins []string
 	mux.HandleFunc("POST /api/chat", s.ask)
 	mux.HandleFunc("GET /api/standings", s.standings)
 	mux.HandleFunc("GET /api/lineups/{ref}", s.lineups)
+	mux.HandleFunc("POST /api/simulate", s.simulate)
 	return s.middleware(mux)
 }
 
@@ -80,8 +81,12 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 func serviceError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, football.ErrNotFound), errors.Is(err, football.ErrLineupsUnavailable):
+	case errors.Is(err, football.ErrNotFound), errors.Is(err, football.ErrLineupsUnavailable), errors.Is(err, football.ErrNoFixture):
 		fail(w, 404, err.Error())
+	case errors.Is(err, football.ErrInsufficientData):
+		fail(w, 422, err.Error())
+	case errors.Is(err, football.ErrSimulationRuns):
+		fail(w, 400, err.Error())
 	case errors.Is(err, football.ErrInvalidInput), errors.Is(err, football.ErrAmbiguous), errors.Is(err, service.ErrValidation):
 		fail(w, 400, err.Error())
 	case errors.Is(err, ai.ErrUnavailable):
@@ -163,6 +168,35 @@ func (s *Server) lineups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.teams.Lineups(r.Context(), ref)
+	if err != nil {
+		serviceError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
+}
+
+// simulate runs the next-fixture Monte Carlo model; runs defaults to 50 (max 10000).
+// With use_ai the local model reviews the inputs first, sharing the one inference slot.
+func (s *Server) simulate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TeamID string `json:"team_id"`
+		Runs   int    `json:"runs"`
+		UseAI  bool   `json:"use_ai"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if req.UseAI {
+		select {
+		case s.inference <- struct{}{}:
+			defer func() { <-s.inference }()
+		default:
+			w.Header().Set("Retry-After", "5")
+			fail(w, 429, "A IA do MatchMind está ocupada com outra análise. Tente novamente em instantes.")
+			return
+		}
+	}
+	result, err := s.teams.Simulate(r.Context(), req.TeamID, req.Runs, req.UseAI)
 	if err != nil {
 		serviceError(w, err)
 		return

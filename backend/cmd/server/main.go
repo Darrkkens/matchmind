@@ -82,7 +82,16 @@ func run() error {
 	if env("OPENFOOTBALL_LEAGUE", "br.1") == "br.1" && env("BRASILEIRAO_HISTORY", "on") != "off" {
 		openProvider.SetHistory(football.NewHistoryProvider())
 	}
-	teams := &service.TeamService{Provider: openProvider, Source: "openfootball", Notice: football.OpenFootballNotice}
+	// Optional local FBref CSV export (never downloaded or redistributed); see README.
+	if dir := os.Getenv("FBREF_DIR"); dir != "" && env("OPENFOOTBALL_LEAGUE", "br.1") == "br.1" {
+		if season, err := football.LoadFBref(dir); err != nil {
+			slog.Warn("FBref season stats disabled", "error", err)
+		} else {
+			openProvider.SetSeason(season)
+			slog.Info("season statistics enabled", "source", "fbref-local", "as_of", season.AsOf())
+		}
+	}
+	teams := &service.TeamService{Provider: openProvider, Source: "openfootball", Notice: football.OpenFootballNotice, Analyst: client}
 	chat := &service.ChatService{Teams: teams, AI: client}
 	server := &http.Server{Addr: env("API_ADDR", "127.0.0.1:8080"), Handler: api.New(teams, chat, strings.Split(env("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"), ",")), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: timeout + 20*time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

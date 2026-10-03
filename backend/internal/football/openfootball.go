@@ -40,23 +40,32 @@ type OpenFootballProvider struct {
 	stats                        StatisticsSource
 	history                      HistorySource
 	squad                        SquadSource
+	seasonStats                  SeasonSource
+}
+
+// SeasonSource supplies league-season totals for a club (see FBrefSeason).
+type SeasonSource interface {
+	Season(team Team) (*SeasonStats, bool)
 }
 
 type openDataset struct {
 	competition string
 	teams       []Team
 	matches     []Match
+	fixtures    []Fixture // upcoming, soonest first
 	standings   []Standing
 	fetchedAt   time.Time
 }
 type openDocument struct {
 	Name    string `json:"name"`
 	Matches []struct {
-		Round string    `json:"round"`
-		Date  string    `json:"date"`
-		Team1 string    `json:"team1"`
-		Team2 string    `json:"team2"`
-		Score openScore `json:"score"`
+		Round  string    `json:"round"`
+		Date   string    `json:"date"`
+		Time   string    `json:"time"`
+		Status string    `json:"status"`
+		Team1  string    `json:"team1"`
+		Team2  string    `json:"team2"`
+		Score  openScore `json:"score"`
 	} `json:"matches"`
 }
 
@@ -95,6 +104,9 @@ func (p *OpenFootballProvider) SetSquad(source SquadSource) { p.squad = source }
 
 // SetHistory enables all-time Série A context (titles, head-to-head) for snapshots.
 func (p *OpenFootballProvider) SetHistory(source HistorySource) { p.history = source }
+
+// SetSeason adds season totals, the club's stadium and the next opponent's numbers.
+func (p *OpenFootballProvider) SetSeason(source SeasonSource) { p.seasonStats = source }
 
 func (p *OpenFootballProvider) load(ctx context.Context) (*openDataset, error) {
 	if err := ctx.Err(); err != nil {
@@ -157,7 +169,8 @@ func (p *OpenFootballProvider) fetch(ctx context.Context) (*openDataset, error) 
 		return nil, ErrProviderData
 	}
 	now := p.now()
-	data := &openDataset{competition: doc.Name, teams: []Team{}, matches: []Match{}, fetchedAt: now}
+	data := &openDataset{competition: doc.Name, teams: []Team{}, matches: []Match{}, fixtures: []Fixture{}, fetchedAt: now}
+	today := now.UTC().Format("2006-01-02")
 	teams := map[string]Team{}
 	seen := map[string]bool{}
 	for _, row := range doc.Matches {
@@ -167,8 +180,16 @@ func (p *OpenFootballProvider) fetch(ctx context.Context) (*openDataset, error) 
 		home, away := p.team(row.Team1), p.team(row.Team2)
 		teams[home.ID] = home
 		teams[away.ID] = away
-		// Missing full-time scores are unplayed/unknown, never 0-0.
+		// Missing full-time scores are unplayed/unknown, never 0-0. Only dated, not
+		// postponed matches from today on count as upcoming fixtures.
 		if len(row.Score.FT) == 0 {
+			if _, err := time.Parse("2006-01-02", row.Date); err == nil && row.Status == "" && row.Date >= today {
+				kickoff := ""
+				if _, err := time.Parse("15:04", row.Time); err == nil {
+					kickoff = row.Time
+				}
+				data.fixtures = append(data.fixtures, Fixture{Competition: doc.Name, Round: row.Round, Date: row.Date, Time: kickoff, HomeTeam: home, AwayTeam: away})
+			}
 			continue
 		}
 		if len(row.Score.FT) != 2 || row.Score.FT[0] == nil || row.Score.FT[1] == nil || *row.Score.FT[0] < 0 || *row.Score.FT[1] < 0 {
@@ -177,7 +198,7 @@ func (p *OpenFootballProvider) fetch(ctx context.Context) (*openDataset, error) 
 		if _, err := time.Parse("2006-01-02", row.Date); err != nil {
 			return nil, ErrProviderData
 		}
-		if row.Date > now.UTC().Format("2006-01-02") {
+		if row.Date > today {
 			continue
 		}
 		id := stableID("of-match", p.league+"/"+p.season+"/"+row.Round+"/"+row.Date+"/"+home.ID+"/"+away.ID)
@@ -192,6 +213,10 @@ func (p *OpenFootballProvider) fetch(ctx context.Context) (*openDataset, error) 
 	}
 	sort.Slice(data.teams, func(i, j int) bool { return data.teams[i].Name < data.teams[j].Name })
 	data.standings = CalculateStandings(data.teams, data.matches)
+	sort.SliceStable(data.fixtures, func(i, j int) bool {
+		a, b := data.fixtures[i], data.fixtures[j]
+		return a.Date+a.Time < b.Date+b.Time
+	})
 	sort.Slice(data.matches, func(i, j int) bool {
 		if data.matches[i].Date == data.matches[j].Date {
 			return data.matches[i].ID < data.matches[j].ID
@@ -287,6 +312,16 @@ func openMatches(data *openDataset, id string, limit int) []Match {
 		}
 	}
 	return result
+}
+
+// nextFixture is the club's soonest upcoming match, or nil when none is scheduled.
+func nextFixture(data *openDataset, id string) *Fixture {
+	for _, f := range data.fixtures {
+		if f.HomeTeam.ID == id || f.AwayTeam.ID == id {
+			return &f
+		}
+	}
+	return nil
 }
 func (p *OpenFootballProvider) GetRecentMatches(ctx context.Context, id string, limit int) ([]Match, error) {
 	data, err := p.load(ctx)
@@ -391,11 +426,44 @@ func (p *OpenFootballProvider) GetSnapshot(ctx context.Context, id string, limit
 			}
 		}
 	}
+	next := nextFixture(data, id)
+	var season, opponentSeason *SeasonStats
+	if p.seasonStats != nil {
+		if st, ok := p.seasonStats.Season(*team); ok {
+			season = st
+			if team.Stadium == "" && st.Stadium != "" {
+				team.Stadium = st.Stadium
+				for i, field := range unavailable {
+					if field == "stadium" {
+						unavailable = append(unavailable[:i:i], unavailable[i+1:]...)
+						break
+					}
+				}
+			}
+		}
+		if next != nil {
+			opponent := next.HomeTeam
+			if opponent.ID == id {
+				opponent = next.AwayTeam
+			}
+			if st, ok := p.seasonStats.Season(opponent); ok {
+				opponentSeason = st
+			}
+		}
+	}
+	var opponentRecent []Match
+	if next != nil {
+		opponentID := next.HomeTeam.ID
+		if opponentID == id {
+			opponentID = next.AwayTeam.ID
+		}
+		opponentRecent = openMatches(data, opponentID, limit)
+	}
 	latest := ""
 	if len(matches) > 0 {
 		latest = matches[0].Date
 	}
-	return &Snapshot{Team: team, RecentMatches: matches, Squad: squad, Trophies: trophies, History: history, RecentForm: CalculateForm(id, matches), Standings: append([]Standing{}, data.standings...), DataSource: "openfootball", DataNotice: OpenFootballNotice,
+	return &Snapshot{Team: team, RecentMatches: matches, NextMatch: next, NextOpponentRecent: opponentRecent, SeasonStats: season, NextOpponentSeason: opponentSeason, Squad: squad, Trophies: trophies, History: history, RecentForm: CalculateForm(id, matches), Standings: append([]Standing{}, data.standings...), DataSource: "openfootball", DataNotice: OpenFootballNotice,
 		DataMetadata: &DataMetadata{Competition: data.competition, Season: p.season, SourceURL: p.url, FetchedAt: data.fetchedAt.UTC().Format(time.RFC3339), LatestMatchDate: latest, UnavailableFields: unavailable, StatisticsSource: statsSource, StatisticsNotice: statsNotice, HistoryNotice: historyNotice},
 	}, nil
 }
@@ -416,4 +484,60 @@ func (p *OpenFootballProvider) Lineups(ctx context.Context, ref string) (*MatchL
 		return nil, ErrLineupsUnavailable
 	}
 	return source.Lineups(ctx, ref)
+}
+
+// SimulateNext runs the model for the club's next fixture without an AI adjustment.
+func (p *OpenFootballProvider) SimulateNext(ctx context.Context, id string, runs int) (*Simulation, error) {
+	in, notes, err := p.SimulationInput(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	sim, err := Simulate(*in, runs)
+	if err != nil {
+		return nil, err
+	}
+	sim.Notes = append(sim.Notes, notes...)
+	return sim, nil
+}
+
+// SimulationInput gathers this season's matches, season detail for both sides and, when
+// available, the Série A head-to-head record for the club's next fixture.
+func (p *OpenFootballProvider) SimulationInput(ctx context.Context, id string) (*SimulationInput, []string, error) {
+	data, err := p.load(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	team, err := findOpenTeam(data, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	next := nextFixture(data, id)
+	if next == nil {
+		return nil, nil, ErrNoFixture
+	}
+	opponent := next.HomeTeam
+	if opponent.ID == id {
+		opponent = next.AwayTeam
+	}
+	in := SimulationInput{Fixture: *next, ClubID: id, Matches: data.matches, Standings: data.standings}
+	notes := []string{}
+	if p.seasonStats != nil {
+		in.ClubSeason, _ = p.seasonStats.Season(*team)
+		in.OpponentSeason, _ = p.seasonStats.Season(opponent)
+	}
+	if p.history != nil {
+		historyCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		h, err := p.history.ClubHistory(historyCtx, *team, []Team{opponent})
+		cancel()
+		if err != nil {
+			notes = append(notes, "Histórico de confrontos indisponível agora; só os jogos desta temporada entraram.")
+		} else {
+			for i := range h.HeadToHead {
+				if h.HeadToHead[i].OpponentID == opponent.ID {
+					in.History = &h.HeadToHead[i]
+				}
+			}
+		}
+	}
+	return &in, notes, nil
 }

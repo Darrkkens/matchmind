@@ -48,3 +48,14 @@ var ErrLineupsUnavailable = errors.New("escalações indisponíveis para esta pa
 type StandingsProvider interface {
 	GetStandings(context.Context) (*Table, error)
 }
+
+var (
+	ErrNoFixture        = errors.New("não há próximo jogo agendado para este clube nos dados")
+	ErrInsufficientData = errors.New("dados insuficientes para simular a partida")
+	ErrSimulationRuns   = errors.New("o número de simulações deve ficar entre 1 e 10000")
+)
+
+// Simulator gathers the next-fixture model inputs (see Simulate).
+type Simulator interface {
+	SimulationInput(ctx context.Context, id string) (*SimulationInput, []string, error)
+}
