@@ -56,6 +56,11 @@ dated by as_of (it may lag the results above): per-match averages, league_averag
 clubs and rank (1 = best of the league; for goals_against, shots_against, shots_on_target_against,
 fouls and cards lower is better), plus home/away records and season leaders. Prefer them for
 attack, defense and season questions, say they are season totals and cite as_of.
+key_players_on_off are regulars whose team does best with them on the pitch (on_off = goal
+difference per 90 with minus without; plus_minus_90 while on); finishers are the main shooters
+(goals, shots, accuracy_pct, goals_per_shot). next_match_availability lists likely card
+suspensions (red or every third yellow in the last league match) and at_risk players one
+yellow away; injuries and tribunal decisions are unknown, so never call a squad complete.
 next_opponent_season is the same for the next opponent, sent only for next-match questions;
 compare facts, never predict the result yourself. next_opponent_last_matches are the opponent's
 latest results (scores only).
@@ -174,12 +179,15 @@ func BuildContextWithSimulation(snapshot *football.Snapshot, question string, si
 		TopScorer  *football.SeasonLeader  `json:"top_scorer_goals,omitempty"`
 		TopAssists *football.SeasonLeader  `json:"top_assists,omitempty"`
 		Goalkeeper *football.SeasonKeeper  `json:"goalkeeper,omitempty"`
+		KeyPlayers []football.KeyPlayer    `json:"key_players_on_off,omitempty"`
+		Finishers  []football.Finisher     `json:"finishers,omitempty"`
 	}
 	compactSeason := func(st *football.SeasonStats) *seasonTotals {
 		if st == nil {
 			return nil
 		}
-		out := &seasonTotals{Source: st.Source, AsOf: st.AsOf, Matches: st.Matches, Metrics: map[string]seasonMetric{}, Home: st.Home, Away: st.Away, TopScorer: st.TopScorer, TopAssists: st.TopAssists, Goalkeeper: st.Goalkeeper}
+		out := &seasonTotals{Source: st.Source, AsOf: st.AsOf, Matches: st.Matches, Metrics: map[string]seasonMetric{}, Home: st.Home, Away: st.Away, TopScorer: st.TopScorer, TopAssists: st.TopAssists, Goalkeeper: st.Goalkeeper,
+			KeyPlayers: st.KeyPlayers[:min(3, len(st.KeyPlayers))], Finishers: st.Finishers[:min(3, len(st.Finishers))]}
 		for _, m := range st.Metrics {
 			out.Metrics[m.Key] = seasonMetric{m.Value, m.League, m.Rank}
 		}
@@ -235,21 +243,22 @@ func BuildContextWithSimulation(snapshot *football.Snapshot, question string, si
 		HistoryNotice     string   `json:"history_notice,omitempty"`
 	}
 	ctx := struct {
-		Team          *football.Team       `json:"team"`
-		DataSource    string               `json:"data_source"`
-		DataNotice    string               `json:"data_notice"`
-		DataMetadata  *metadata            `json:"data_metadata,omitempty"`
-		RecentForm    football.RecentForm  `json:"recent_form"`
-		RecentMatches []match              `json:"recent_matches"`
-		NextMatch     *fixture             `json:"next_match,omitempty"`
-		SeasonStats   *seasonTotals        `json:"season_stats,omitempty"`
-		NextOpponent  *seasonTotals        `json:"next_opponent_season,omitempty"`
-		OpponentLast5 []match              `json:"next_opponent_last_matches,omitempty"`
-		Simulation    *football.Simulation `json:"simulation,omitempty"`
-		Standings     []row                `json:"standings"`
-		History       *history             `json:"history,omitempty"`
-		Squad         []football.Player    `json:"squad"`
-		Trophies      []football.Trophy    `json:"trophies"`
+		Team          *football.Team              `json:"team"`
+		DataSource    string                      `json:"data_source"`
+		DataNotice    string                      `json:"data_notice"`
+		DataMetadata  *metadata                   `json:"data_metadata,omitempty"`
+		RecentForm    football.RecentForm         `json:"recent_form"`
+		RecentMatches []match                     `json:"recent_matches"`
+		NextMatch     *fixture                    `json:"next_match,omitempty"`
+		SeasonStats   *seasonTotals               `json:"season_stats,omitempty"`
+		NextOpponent  *seasonTotals               `json:"next_opponent_season,omitempty"`
+		OpponentLast5 []match                     `json:"next_opponent_last_matches,omitempty"`
+		Availability  *football.MatchAvailability `json:"next_match_availability,omitempty"`
+		Simulation    *football.Simulation        `json:"simulation,omitempty"`
+		Standings     []row                       `json:"standings"`
+		History       *history                    `json:"history,omitempty"`
+		Squad         []football.Player           `json:"squad"`
+		Trophies      []football.Trophy           `json:"trophies"`
 	}{DataSource: snapshot.DataSource, DataNotice: snapshot.DataNotice, RecentForm: snapshot.RecentForm, RecentMatches: []match{}, Standings: []row{}, Trophies: snapshot.Trophies}
 	// Large squads only for player questions, limited to the most used players.
 	if withSquad {
@@ -294,6 +303,7 @@ func BuildContextWithSimulation(snapshot *football.Snapshot, question string, si
 	ctx.SeasonStats = compactSeason(snapshot.SeasonStats)
 	if mentions(question, nextWords) || sim != nil {
 		ctx.NextOpponent = compactSeason(snapshot.NextOpponentSeason)
+		ctx.Availability = snapshot.NextAvailability
 		for _, m := range snapshot.NextOpponentRecent {
 			ctx.OpponentLast5 = append(ctx.OpponentLast5, match{Date: m.Date, Round: m.Round, HomeTeam: club{m.HomeTeam.ID, m.HomeTeam.Name}, AwayTeam: club{m.AwayTeam.ID, m.AwayTeam.Name}, HomeScore: m.HomeScore, AwayScore: m.AwayScore})
 		}
@@ -358,7 +368,7 @@ type Answer struct {
 	SourcesUsed []string `json:"sources_used"`
 }
 
-var factorNames = map[string]string{"season": "Força na temporada", "season_detail": "Estatísticas da temporada", "venue": "Campanha em casa e fora", "form": "Últimos 5 jogos", "rest": "Sequência e descanso", "injuries": "Lesionados", "head_to_head": "Confrontos históricos", "ai_analyst": "Análise da IA", "randomness": "Aleatoriedade"}
+var factorNames = map[string]string{"season": "Força na temporada", "season_detail": "Estatísticas da temporada", "venue": "Campanha em casa e fora", "form": "Últimos 5 jogos", "rest": "Sequência e descanso", "injuries": "Lesionados", "suspensions": "Suspensões por cartão", "head_to_head": "Confrontos históricos", "ai_analyst": "Análise da IA", "randomness": "Aleatoriedade"}
 
 // simulationContext pre-renders the simulation as short Portuguese sentences with club names,
 // so a small model cannot swap sides or misattribute a factor's number.

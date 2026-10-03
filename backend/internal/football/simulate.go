@@ -54,6 +54,8 @@ type SimulationInput struct {
 	History   *HeadToHead // Série A record against the opponent, when known
 	// Optional season detail (shots, home/away splits) for both sides, from a local source.
 	ClubSeason, OpponentSeason *SeasonStats
+	// Likely absences (card suspensions) for both sides, when bookings are known.
+	ClubAvailability, OpponentAvailability *Availability
 	// Optional adjustment from the AI analyst, applied before the random draws.
 	Analyst *SimulationAdjustment
 }
@@ -290,8 +292,13 @@ func Simulate(in SimulationInput, runs int) (*Simulation, error) {
 		sim.Factors = append(sim.Factors, SimulationFactor{Key: "rest", Club: 1, Opponent: 1, Detail: "Datas dos jogos anteriores indisponíveis"})
 	}
 
-	// 3. Injuries: no source in this app yet.
-	sim.Factors = append(sim.Factors, SimulationFactor{Key: "injuries", Club: 1, Opponent: 1, Detail: "Lesões e suspensões não estão disponíveis em nenhuma fonte configurada; o fator não altera a simulação"})
+	// 3. Absences: card suspensions are derived from bookings; injuries have no source.
+	sf, ok := suspensionFactor(in.ClubAvailability, in.OpponentAvailability, club.Name, opp.Name)
+	if ok {
+		lambdaClub, lambdaOpp = lambdaClub*sf.Club, lambdaOpp*sf.Opponent
+	}
+	sim.Factors = append(sim.Factors, sf)
+	sim.Factors = append(sim.Factors, SimulationFactor{Key: "injuries", Club: 1, Opponent: 1, Detail: "Lesões não estão disponíveis em nenhuma fonte configurada; o fator não altera a simulação"})
 
 	// 4 and 7. Head-to-head: Série A history plus this season's meetings.
 	w, d, l, gf, ga := 0, 0, 0, 0, 0

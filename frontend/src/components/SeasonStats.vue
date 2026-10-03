@@ -6,6 +6,7 @@ import { formatMetric, formatNumber, groups, metricInfo, rankTier, recordLine } 
 
 const props = defineProps<{ stats: SeasonStats }>()
 const grouped = computed(() => groups.map((g) => ({ ...g, metrics: props.stats.metrics.filter((m) => m.group === g.id && metricInfo[m.key]) })).filter((g) => g.metrics.length))
+const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}`
 const splits = computed(() => [
   { label: 'Em casa', record: props.stats.home },
   { label: 'Fora de casa', record: props.stats.away },
@@ -48,6 +49,37 @@ const splits = computed(() => [
         <div v-if="stats.average_attendance"><dt>Público médio em casa</dt><dd class="num">{{ formatNumber(stats.average_attendance) }}<template v-if="stats.stadium"> · {{ stats.stadium }}</template></dd></div>
       </dl>
     </div>
+    <div v-if="stats.key_players?.length || stats.finishers?.length" class="players">
+      <div v-if="stats.key_players?.length" class="player-table">
+        <table class="num">
+          <caption><h3 class="eyebrow">Jogadores-chave</h3><span class="muted">Saldo de gols por 90 min com ele em campo menos sem ele</span></caption>
+          <thead><tr><th scope="col">Jogador</th><th scope="col"><abbr title="Porcentagem dos minutos do time">Min.</abbr></th><th scope="col"><abbr title="Saldo de gols por 90 minutos com o jogador em campo">+/− 90</abbr></th><th scope="col"><abbr title="Diferença do saldo por 90 min: com ele − sem ele">Com − sem</abbr></th></tr></thead>
+          <tbody>
+            <tr v-for="p in stats.key_players" :key="p.player">
+              <th scope="row">{{ p.player }}<small v-if="p.position"> {{ p.position }}</small></th>
+              <td>{{ Math.round(p.minutes_pct) }}%</td>
+              <td>{{ signed(p.plus_minus_90) }}</td>
+              <td :class="{ up: p.on_off > 0, down: p.on_off < 0 }">{{ signed(p.on_off) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="stats.finishers?.length" class="player-table">
+        <table class="num">
+          <caption><h3 class="eyebrow">Finalização</h3><span class="muted">Jogadores com 10+ finalizações</span></caption>
+          <thead><tr><th scope="col">Jogador</th><th scope="col"><abbr title="Gols">G</abbr></th><th scope="col"><abbr title="Finalizações (no alvo)">Fin. (alvo)</abbr></th><th scope="col"><abbr title="Precisão: % no alvo">Prec.</abbr></th><th scope="col"><abbr title="Gols por finalização">G/fin.</abbr></th></tr></thead>
+          <tbody>
+            <tr v-for="f in stats.finishers" :key="f.player">
+              <th scope="row">{{ f.player }}</th>
+              <td>{{ f.goals }}</td>
+              <td>{{ f.shots }} ({{ f.shots_on_target }})</td>
+              <td>{{ formatMetric('shot_accuracy', f.accuracy_pct) }}</td>
+              <td :class="{ up: f.goals_per_shot >= 0.15 }">{{ formatMetric('goals_per_shot', f.goals_per_shot) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
     <p class="note">Totais da Série A {{ stats.as_of.slice(0, 4) }} numa cópia local; podem estar atrás dos resultados acima. Posição entre {{ stats.metrics[0]?.clubs ?? 20 }} clubes, 1º = melhor (em gols sofridos, finalizações cedidas, faltas e cartões, menos é melhor).</p>
   </section>
 </template>
@@ -76,6 +108,21 @@ dt { grid-area: label; font-size: var(--fs-xs); color: var(--text-2); }
 .leaders dt { grid-area: auto; color: var(--text-3); font-size: var(--fs-xs); }
 .leaders dd { font-weight: 550; overflow-wrap: anywhere; }
 .leaders dd span { font-weight: 400; color: var(--text-2); }
+.players { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-5); margin-top: var(--s-5); }
+@container (min-width: 760px) { .players { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.player-table { overflow-x: auto; }
+.player-table table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+.player-table caption { caption-side: top; text-align: left; padding-bottom: var(--s-2); }
+.player-table caption > * { display: block; }
+.player-table caption .muted { margin-top: 2px; }
+.player-table thead th { font-size: var(--fs-2xs); font-weight: 600; color: var(--text-3); text-align: right; padding: var(--s-2) 0 var(--s-2) var(--s-2); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.player-table thead th:first-child { text-align: left; padding-left: 0; }
+.player-table tbody th { text-align: left; font-weight: 550; padding: var(--s-2) 0; border-bottom: 1px solid var(--line); }
+.player-table tbody th small { font-weight: 400; color: var(--text-3); margin-left: 4px; }
+.player-table td { text-align: right; padding: var(--s-2) 0 var(--s-2) var(--s-2); border-bottom: 1px solid var(--line); color: var(--text-2); white-space: nowrap; }
+.player-table td.up { color: var(--accent); }
+.player-table td.down { color: var(--danger); }
+.player-table abbr { text-decoration: none; }
 .note { font-size: var(--fs-2xs); color: var(--text-3); margin-top: var(--s-3); line-height: 1.6; }
 @container (max-width: 480px) { .leaders div { grid-template-columns: 1fr; gap: 0; } }
 </style>

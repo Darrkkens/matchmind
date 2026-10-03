@@ -104,6 +104,8 @@ type Snapshot struct {
 	// Season totals from an optional local source; the next opponent's only with a next match.
 	SeasonStats        *SeasonStats `json:"season_stats,omitempty"`
 	NextOpponentSeason *SeasonStats `json:"next_opponent_season,omitempty"`
+	// Likely card suspensions and players one yellow away, for both sides of the next match.
+	NextAvailability *MatchAvailability `json:"next_match_availability,omitempty"`
 }
 
 // SeasonStats are league-season totals for one club as of AsOf (a dated snapshot).
@@ -123,6 +125,52 @@ type SeasonStats struct {
 	TopScorer         *SeasonLeader  `json:"top_scorer,omitempty"`
 	TopAssists        *SeasonLeader  `json:"top_assists,omitempty"`
 	Goalkeeper        *SeasonKeeper  `json:"goalkeeper,omitempty"`
+	// Players with the biggest on/off impact among regulars, and the most used finishers.
+	KeyPlayers []KeyPlayer `json:"key_players,omitempty"`
+	Finishers  []Finisher  `json:"finishers,omitempty"`
+	// Season bookings per player; used for suspensions, not sent to clients.
+	Bookings []PlayerBookings `json:"-"`
+}
+
+// KeyPlayer: OnOff is the team's goal difference per 90 with the player on the pitch minus
+// without him; PlusMinus90 is the goal difference per 90 while he played.
+type KeyPlayer struct {
+	Player         string  `json:"player"`
+	Position       string  `json:"position,omitempty"`
+	Minutes        int     `json:"minutes"`
+	MinutesPct     float64 `json:"minutes_pct"`
+	PlusMinus90    float64 `json:"plus_minus_90"`
+	OnOff          float64 `json:"on_off"`
+	PointsPerMatch float64 `json:"points_per_match"`
+}
+type Finisher struct {
+	Player        string  `json:"player"`
+	Goals         int     `json:"goals"`
+	Shots         int     `json:"shots"`
+	ShotsOnTarget int     `json:"shots_on_target"`
+	Accuracy      float64 `json:"accuracy_pct"`
+	GoalsPerShot  float64 `json:"goals_per_shot"`
+}
+type PlayerBookings struct {
+	Player string
+	Yellow int
+	Red    int
+	// Impact of the player, when known, to weigh an absence.
+	OnOff      float64
+	MinutesPct float64
+}
+
+// Availability lists likely absences for the next match from league bookings.
+type Availability struct {
+	Suspended []Absence `json:"suspended"`
+	AtRisk    []string  `json:"at_risk"` // one yellow card away from a suspension
+	Note      string    `json:"note,omitempty"`
+}
+type Absence struct {
+	Player     string  `json:"player"`
+	Reason     string  `json:"reason"`
+	MinutesPct float64 `json:"minutes_pct,omitempty"`
+	OnOff      float64 `json:"on_off,omitempty"`
 }
 type SeasonMetric struct {
 	Key           string  `json:"key"`

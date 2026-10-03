@@ -9,7 +9,7 @@ const props = defineProps<{ fixture: Fixture; teamId: string }>()
 const emit = defineEmits<{ explain: [question: string] }>()
 
 const RUN_OPTIONS = [50, 1000, 10000]
-const factorLabels: Record<string, string> = { season: 'Força na temporada', season_detail: 'Estatísticas da temporada', venue: 'Campanha em casa e fora', form: 'Últimos 5 jogos', rest: 'Sequência e descanso', injuries: 'Lesionados', head_to_head: 'Confrontos históricos', ai_analyst: 'Análise da IA (Gemma local)', randomness: 'Aleatoriedade' }
+const factorLabels: Record<string, string> = { season: 'Força na temporada', season_detail: 'Estatísticas da temporada', venue: 'Campanha em casa e fora', form: 'Últimos 5 jogos', rest: 'Sequência e descanso', injuries: 'Lesionados', suspensions: 'Suspensões por cartão', head_to_head: 'Confrontos históricos', ai_analyst: 'Análise da IA (Gemma local)', randomness: 'Aleatoriedade' }
 const runs = ref(RUN_OPTIONS[0])
 const result = ref<Simulation | null>(null)
 const loading = ref(false)

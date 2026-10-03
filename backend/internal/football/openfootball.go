@@ -451,6 +451,19 @@ func (p *OpenFootballProvider) GetSnapshot(ctx context.Context, id string, limit
 			}
 		}
 	}
+	var availability *MatchAvailability
+	if next != nil && season != nil && opponentSeason != nil {
+		opponent := next.HomeTeam
+		if opponent.ID == id {
+			opponent = next.AwayTeam
+		}
+		var clubLast *Match
+		if len(matches) > 0 {
+			m := matches[0]
+			clubLast = &m
+		}
+		availability = p.nextAvailability(ctx, data, *team, opponent, clubLast, season, opponentSeason)
+	}
 	var opponentRecent []Match
 	if next != nil {
 		opponentID := next.HomeTeam.ID
@@ -463,7 +476,7 @@ func (p *OpenFootballProvider) GetSnapshot(ctx context.Context, id string, limit
 	if len(matches) > 0 {
 		latest = matches[0].Date
 	}
-	return &Snapshot{Team: team, RecentMatches: matches, NextMatch: next, NextOpponentRecent: opponentRecent, SeasonStats: season, NextOpponentSeason: opponentSeason, Squad: squad, Trophies: trophies, History: history, RecentForm: CalculateForm(id, matches), Standings: append([]Standing{}, data.standings...), DataSource: "openfootball", DataNotice: OpenFootballNotice,
+	return &Snapshot{Team: team, RecentMatches: matches, NextMatch: next, NextOpponentRecent: opponentRecent, SeasonStats: season, NextOpponentSeason: opponentSeason, NextAvailability: availability, Squad: squad, Trophies: trophies, History: history, RecentForm: CalculateForm(id, matches), Standings: append([]Standing{}, data.standings...), DataSource: "openfootball", DataNotice: OpenFootballNotice,
 		DataMetadata: &DataMetadata{Competition: data.competition, Season: p.season, SourceURL: p.url, FetchedAt: data.fetchedAt.UTC().Format(time.RFC3339), LatestMatchDate: latest, UnavailableFields: unavailable, StatisticsSource: statsSource, StatisticsNotice: statsNotice, HistoryNotice: historyNotice},
 	}, nil
 }
@@ -524,6 +537,9 @@ func (p *OpenFootballProvider) SimulationInput(ctx context.Context, id string) (
 	if p.seasonStats != nil {
 		in.ClubSeason, _ = p.seasonStats.Season(*team)
 		in.OpponentSeason, _ = p.seasonStats.Season(opponent)
+		if a := p.nextAvailability(ctx, data, *team, opponent, nil, in.ClubSeason, in.OpponentSeason); a != nil {
+			in.ClubAvailability, in.OpponentAvailability = a.Club, a.Opponent
+		}
 	}
 	if p.history != nil {
 		historyCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
@@ -540,4 +556,33 @@ func (p *OpenFootballProvider) SimulationInput(ctx context.Context, id string) (
 		}
 	}
 	return &in, notes, nil
+}
+
+// lastLeagueMatch is the team's latest finished league match with its cards, enriched by
+// the statistics source when one is configured (cached, like the snapshot's own matches).
+func (p *OpenFootballProvider) lastLeagueMatch(ctx context.Context, data *openDataset, team Team) *Match {
+	recent := openMatches(data, team.ID, 1)
+	if len(recent) == 0 {
+		return nil
+	}
+	if p.stats != nil {
+		statsCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		_ = p.stats.Enrich(statsCtx, team, recent)
+		cancel()
+	}
+	return &recent[0]
+}
+
+// nextAvailability computes card suspensions for both sides of the next fixture.
+func (p *OpenFootballProvider) nextAvailability(ctx context.Context, data *openDataset, club, opponent Team, clubLast *Match, clubSeason, oppSeason *SeasonStats) *MatchAvailability {
+	if clubSeason == nil || oppSeason == nil {
+		return nil
+	}
+	if clubLast == nil {
+		clubLast = p.lastLeagueMatch(ctx, data, club)
+	}
+	return &MatchAvailability{
+		Club:     NextMatchAvailability(club.ID, clubLast, clubSeason),
+		Opponent: NextMatchAvailability(opponent.ID, p.lastLeagueMatch(ctx, data, opponent), oppSeason),
+	}
 }
