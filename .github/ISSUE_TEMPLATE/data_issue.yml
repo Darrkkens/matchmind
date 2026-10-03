@@ -1,0 +1,23 @@
+name: Data problem
+description: Wrong, missing or mismatched football data (scores, stats, crests, history)
+labels: [data]
+body:
+  - type: input
+    id: where
+    attributes:
+      label: Club and match
+      placeholder: "Palmeiras 2 x 0 São Paulo, 12/09/2026"
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What is wrong?
+      description: What MatchMind shows versus the correct value, with a public reference if possible.
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Source shown in the dashboard
+      options: [OpenFootball, AlmanacStats, API-Futebol, API-Football, "Histórico (Brasileirao_Dataset)", Crest/escudo, Not sure]

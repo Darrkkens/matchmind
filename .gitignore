@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+node_modules/
+frontend/dist/
+backend/server
+backend/coverage.out
+*.test
+*.log
+.DS_Store
+.idea/
+.vscode/
+# Local builds and tooling
+backend/matchmind
+/tmp/
+*.swp
+.playwright/

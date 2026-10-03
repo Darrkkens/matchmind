@@ -1,0 +1,23 @@
+# PostgreSQL that caches API-Futebol responses (finished matches are stored forever).
+# Start: docker compose up -d   ·   Credentials come from .env (see .env.example).
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: matchmind_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-matchmind}
+      POSTGRES_USER: ${POSTGRES_USER:-matchmind}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - matchmind_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  matchmind_pgdata:
