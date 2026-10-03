@@ -8,5 +8,6 @@ Captured on October 2, 2026 with Playwright (Chromium) from the running applicat
 - `history.png` — Série A history with season-by-season table and top scorers expanded.
 - `chat.png` — an actual Gemma 3 4B answer generated locally, not a mock.
 - `mobile.png` — Flamengo dashboard at 390 px.
+- `simulation.png` — next-match card for Palmeiras x Bahia: how both sides arrive, and a 10,000-match simulation with the local Gemma 3 4B analyst (October 3, 2026).
 
 When updating: capture the real running application, keep data-source notices visible, use only documented crest assets, and never present a handwritten or mocked response as a real model answer.
