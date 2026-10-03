@@ -1,4 +1,4 @@
-import type { Snapshot, ChatAnswer, Health, LeagueTable, MatchLineups } from '../types/football'
+import type { Snapshot, ChatAnswer, Health, LeagueTable, MatchLineups, Simulation } from '../types/football'
 
 const base = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
 async function request<T>(path: string, body?: object, signal?: AbortSignal): Promise<T> {
@@ -23,5 +23,7 @@ export const api = {
   chat: (team_id: string, question: string, signal: AbortSignal) => request<ChatAnswer>('/chat', { team_id, question }, signal),
   lineups: (ref: string) => request<MatchLineups>(`/lineups/${encodeURIComponent(ref)}`, undefined, AbortSignal.timeout(20_000)),
   standings: () => request<LeagueTable>('/standings', undefined, AbortSignal.timeout(15_000)),
+  // The AI step runs on the local CPU model, so this can take as long as a chat answer.
+  simulate: (team_id: string, runs: number) => request<Simulation>('/simulate', { team_id, runs, use_ai: true }, AbortSignal.timeout(260_000)),
   health: () => request<Health>('/health', undefined, AbortSignal.timeout(5000)),
 }

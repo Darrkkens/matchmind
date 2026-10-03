@@ -19,7 +19,10 @@ const openFixture = `{"name":"Test League 2026","matches":[
 {"round":"2","date":"2026-09-15","team1":"São Paulo FC","team2":"SE Palmeiras","score":{"ft":[1,1]}},
 {"round":"3","date":"2026-09-30","team1":"SE Palmeiras","team2":"São Paulo FC","score":{"ft":[2,0]}},
 {"round":"4","date":"2026-10-01","team1":"SE Palmeiras","team2":"São Paulo FC"},
-{"round":"5","date":"2026-12-01","team1":"SE Palmeiras","team2":"São Paulo FC","score":{"ft":[9,9]}}
+{"round":"5","date":"2026-12-01","team1":"SE Palmeiras","team2":"São Paulo FC","score":{"ft":[9,9]}},
+{"round":"7","date":"2026-10-20","team1":"SE Palmeiras","team2":"São Paulo FC"},
+{"round":"6","date":"2026-10-08","time":"21:30","team1":"São Paulo FC","team2":"SE Palmeiras"},
+{"round":"6","date":"2026-10-05","time":"16:00","team1":"São Paulo FC","team2":"SE Palmeiras","status":"postponed"}
 ]}`
 
 func fixtureProvider(t *testing.T, handler http.HandlerFunc) *OpenFootballProvider {
@@ -75,6 +78,10 @@ func TestOpenFootballResultsAndCoverage(t *testing.T) {
 	}
 	if snapshot.DataSource != "openfootball" || snapshot.DataMetadata.Season != "2026" || snapshot.DataMetadata.LatestMatchDate != "2026-09-30" || snapshot.DataMetadata.FetchedAt != "2026-10-02T12:00:00Z" {
 		t.Fatalf("metadata %+v", snapshot)
+	}
+	// Past unscored (round 4) and postponed rows are not upcoming; the soonest dated fixture is.
+	if n := snapshot.NextMatch; n == nil || n.Round != "6" || n.Date != "2026-10-08" || n.Time != "21:30" || n.HomeTeam.Name != "São Paulo FC" || n.AwayTeam.ID != team.ID || n.Competition != "Test League 2026" {
+		t.Fatalf("next match %+v", snapshot.NextMatch)
 	}
 	if len(snapshot.Squad) != 0 || snapshot.Squad == nil || len(snapshot.Trophies) != 0 || snapshot.Trophies == nil {
 		t.Fatal("missing sections must be empty arrays")
@@ -255,5 +262,44 @@ func TestOpenFootballCompactScoreIncludesScorelessDraw(t *testing.T) {
 	}
 	if matches[0].HomeScore != 0 || matches[0].AwayScore != 0 || matches[0].Date != "2026-09-30" {
 		t.Fatal("explicit 0-0 draw was lost")
+	}
+}
+
+type fakeSeason map[string]*SeasonStats
+
+func (f fakeSeason) Season(team Team) (*SeasonStats, bool) {
+	s, ok := f[team.Name]
+	return s, ok
+}
+
+func TestOpenFootballSnapshotUsesSeasonSource(t *testing.T) {
+	p := fixtureProvider(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(openFixture)) })
+	p.SetSeason(fakeSeason{
+		"SE Palmeiras": {Team: "Palmeiras", Stadium: "Test Arena", Metrics: []SeasonMetric{}},
+		"São Paulo FC": {Team: "São Paulo", Metrics: []SeasonMetric{}},
+	})
+	ctx := context.Background()
+	teams, err := p.SearchTeam(ctx, "Palmeiras")
+	if err != nil || len(teams) != 1 {
+		t.Fatal(teams, err)
+	}
+	snap, err := p.GetSnapshot(ctx, teams[0].ID, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.SeasonStats == nil || snap.SeasonStats.Team != "Palmeiras" || snap.Team.Stadium != "Test Arena" {
+		t.Fatalf("season %+v team %+v", snap.SeasonStats, snap.Team)
+	}
+	for _, f := range snap.DataMetadata.UnavailableFields {
+		if f == "stadium" {
+			t.Fatal("stadium still listed as unavailable")
+		}
+	}
+	if snap.NextOpponentSeason == nil || snap.NextOpponentSeason.Team != "São Paulo" {
+		t.Fatalf("opponent %+v", snap.NextOpponentSeason)
+	}
+	// The cached team must keep its unknown stadium for other callers.
+	if team, _ := p.GetTeam(ctx, teams[0].ID); team.Stadium != "" {
+		t.Fatal("season stadium leaked into the cached team")
 	}
 }

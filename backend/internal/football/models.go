@@ -98,6 +98,71 @@ type Snapshot struct {
 	DataSource    string        `json:"data_source"`
 	DataNotice    string        `json:"data_notice"`
 	DataMetadata  *DataMetadata `json:"data_metadata,omitempty"`
+	NextMatch     *Fixture      `json:"next_match,omitempty"`
+	// The next opponent's latest finished league matches (scores only), newest first.
+	NextOpponentRecent []Match `json:"next_opponent_recent,omitempty"`
+	// Season totals from an optional local source; the next opponent's only with a next match.
+	SeasonStats        *SeasonStats `json:"season_stats,omitempty"`
+	NextOpponentSeason *SeasonStats `json:"next_opponent_season,omitempty"`
+}
+
+// SeasonStats are league-season totals for one club as of AsOf (a dated snapshot).
+// Per-match metrics are already divided by Matches; League is the average of all clubs
+// and Rank is 1 for the best value (lowest when LowerIsBetter).
+type SeasonStats struct {
+	Source            string         `json:"source"`
+	SourceURL         string         `json:"source_url"`
+	AsOf              string         `json:"as_of"`
+	Team              string         `json:"team"`
+	Matches           int            `json:"matches"`
+	Metrics           []SeasonMetric `json:"metrics"`
+	Home              *SplitRecord   `json:"home,omitempty"`
+	Away              *SplitRecord   `json:"away,omitempty"`
+	Stadium           string         `json:"stadium,omitempty"`
+	AverageAttendance int            `json:"average_attendance,omitempty"`
+	TopScorer         *SeasonLeader  `json:"top_scorer,omitempty"`
+	TopAssists        *SeasonLeader  `json:"top_assists,omitempty"`
+	Goalkeeper        *SeasonKeeper  `json:"goalkeeper,omitempty"`
+}
+type SeasonMetric struct {
+	Key           string  `json:"key"`
+	Group         string  `json:"group"`
+	Value         float64 `json:"value"`
+	League        float64 `json:"league"`
+	Rank          int     `json:"rank"`
+	Clubs         int     `json:"clubs"`
+	LowerIsBetter bool    `json:"lower_is_better,omitempty"`
+}
+type SplitRecord struct {
+	Played         int     `json:"played"`
+	Wins           int     `json:"wins"`
+	Draws          int     `json:"draws"`
+	Losses         int     `json:"losses"`
+	GoalsFor       int     `json:"goals_for"`
+	GoalsAgainst   int     `json:"goals_against"`
+	Points         int     `json:"points"`
+	PointsPerMatch float64 `json:"points_per_match"`
+}
+type SeasonLeader struct {
+	Player string `json:"player"`
+	Value  int    `json:"value"`
+}
+type SeasonKeeper struct {
+	Player      string  `json:"player"`
+	Matches     int     `json:"matches"`
+	SavePct     float64 `json:"save_pct"`
+	CleanSheets int     `json:"clean_sheets"`
+}
+
+// Fixture is a scheduled match with no result yet. Time is the kick-off as published
+// by the source (local time), empty when unknown.
+type Fixture struct {
+	Competition string `json:"competition"`
+	Round       string `json:"round,omitempty"`
+	Date        string `json:"date"`
+	Time        string `json:"time,omitempty"`
+	HomeTeam    Team   `json:"home_team"`
+	AwayTeam    Team   `json:"away_team"`
 }
 
 type DataMetadata struct {

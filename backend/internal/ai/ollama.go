@@ -41,54 +41,24 @@ func (o *Ollama) Chat(ctx context.Context, contextJSON, question string) (Answer
 	if err != nil {
 		return Answer{}, ErrInvalidResponse
 	}
-	payload := map[string]any{
-		"model": o.model, "stream": false, "options": map[string]any{"temperature": 0.1, "num_predict": 600, "num_ctx": 8192},
-		"format":   map[string]any{"type": "object", "additionalProperties": false, "required": []string{"facts", "interpretation", "sources_used"}, "properties": map[string]any{"facts": map[string]any{"type": "string", "minLength": 1}, "interpretation": map[string]any{"type": "string"}, "sources_used": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"team", "recent_matches", "recent_form", "standings", "history", "squad", "trophies"}}}}},
-		"messages": []map[string]string{{"role": "system", "content": SystemPrompt}, {"role": "user", "content": string(envelope)}},
-	}
-	body, err := json.Marshal(payload)
+	schema := map[string]any{"type": "object", "additionalProperties": false, "required": []string{"facts", "interpretation", "sources_used"}, "properties": map[string]any{"facts": map[string]any{"type": "string", "minLength": 1}, "interpretation": map[string]any{"type": "string"}, "sources_used": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"team", "recent_matches", "recent_form", "next_match", "season_stats", "simulation", "standings", "history", "squad", "trophies"}}}}}
+	content, err := o.generate(ctx, SystemPrompt, string(envelope), schema, 600)
 	if err != nil {
-		return Answer{}, ErrInvalidResponse
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL+"/api/chat", bytes.NewReader(body))
-	if err != nil {
-		return Answer{}, ErrUnavailable
-	}
-	req.Header.Set("Content-Type", "application/json")
-	res, err := o.http.Do(req)
-	if err != nil {
-		return Answer{}, ErrUnavailable
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return Answer{}, ErrUnavailable
-	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, 65537))
-	if err != nil || len(data) > 65536 {
-		return Answer{}, ErrInvalidResponse
-	}
-	var response struct {
-		Done    bool `json:"done"`
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	}
-	if json.Unmarshal(data, &response) != nil || !response.Done {
-		return Answer{}, ErrInvalidResponse
+		return Answer{}, err
 	}
 	var generated struct {
 		Facts          string   `json:"facts"`
 		Interpretation *string  `json:"interpretation"`
 		SourcesUsed    []string `json:"sources_used"`
 	}
-	if json.Unmarshal([]byte(response.Message.Content), &generated) != nil || strings.TrimSpace(generated.Facts) == "" || generated.Interpretation == nil || len(generated.Facts)+len(*generated.Interpretation) > 12000 || generated.SourcesUsed == nil {
+	if json.Unmarshal([]byte(content), &generated) != nil || strings.TrimSpace(generated.Facts) == "" || generated.Interpretation == nil || len(generated.Facts)+len(*generated.Interpretation) > 12000 || generated.SourcesUsed == nil {
 		return Answer{}, ErrInvalidResponse
 	}
 	answer := Answer{Answer: "FATO:\n" + strings.TrimSpace(generated.Facts), SourcesUsed: generated.SourcesUsed}
 	if interpretation := strings.TrimSpace(*generated.Interpretation); interpretation != "" {
 		answer.Answer += "\n\nINTERPRETAÇÃO:\n" + interpretation
 	}
-	allowed := map[string]bool{"team": true, "recent_matches": true, "recent_form": true, "squad": true, "trophies": true, "standings": true, "history": true}
+	allowed := map[string]bool{"team": true, "recent_matches": true, "recent_form": true, "next_match": true, "season_stats": true, "simulation": true, "squad": true, "trophies": true, "standings": true, "history": true}
 	seen := map[string]bool{}
 	sources := []string{}
 	for _, source := range answer.SourcesUsed {
@@ -102,6 +72,46 @@ func (o *Ollama) Chat(ctx context.Context, contextJSON, question string) (Answer
 	}
 	answer.SourcesUsed = sources
 	return answer, nil
+}
+
+// generate sends one system+user exchange constrained to a JSON schema and returns the content.
+func (o *Ollama) generate(ctx context.Context, system, user string, schema map[string]any, maxTokens int) (string, error) {
+	payload := map[string]any{
+		"model": o.model, "stream": false, "options": map[string]any{"temperature": 0.1, "num_predict": maxTokens, "num_ctx": 8192},
+		"format":   schema,
+		"messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", ErrInvalidResponse
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return "", ErrUnavailable
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := o.http.Do(req)
+	if err != nil {
+		return "", ErrUnavailable
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", ErrUnavailable
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, 65537))
+	if err != nil || len(data) > 65536 {
+		return "", ErrInvalidResponse
+	}
+	var response struct {
+		Done    bool `json:"done"`
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(data, &response) != nil || !response.Done {
+		return "", ErrInvalidResponse
+	}
+	return response.Message.Content, nil
 }
 
 // Readiness includes whether the configured model is installed, not merely a live daemon.

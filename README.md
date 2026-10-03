@@ -22,10 +22,12 @@ MatchMind is a Brasileirão dashboard with a Vue 3 interface (in Brazilian Portu
 - **Brasileirão table** computed from the season's results, with all 20 club crests, indicative Libertadores / Sul-Americana / relegation zones, and click-to-analyze.
 - **Club search** by name, nickname (`Galo`, `Timão`, `Verdão`…) or a public team URL (parsed locally as text, never fetched).
 - **Recent form**: W/D/L sequence, goals, average and points percentage.
-- **Last three matches** with possession, shots, shots on target, corners, fouls and cards; **goal scorers** (with assists, penalties and own goals), **bookings**, **stadium** and **referee**.
+- **Next scheduled match** (opponent, date, kick-off time, home or away) and the **last five matches** with possession, shots, shots on target, corners, fouls and cards; **goal scorers** (with assists, penalties and own goals), **bookings**, **stadium** and **referee**.
 - **"Ver escalações"**: both team sheets on demand — formation, coach, starters, substitutes, minutes, ratings, goals and cards.
 - **Squad** with appearances, goals, assists and ratings.
 - **Série A history 2003–2024**: titles, season-by-season position/points/coaches/averages, the club's top scorers, discipline, and head-to-head records with scorers of the last meetings.
+- **Season panel** (optional, local FBref CSV export): attack, defense and discipline per match against the league average with ranks, home/away records, top scorer, assists leader, goalkeeper, average attendance and home stadium.
+- **Next-match preview and simulation**: both clubs' last five results, home/away records and season numbers side by side, and a Monte Carlo simulation (50, 1,000 or 10,000 matches) with win/draw/loss percentages, expected goals and the most simulated scores. See [Next-match simulation](#next-match-simulation).
 - **AI chat** in Portuguese with quick questions, cited context sections and clear limits.
 - Responsive dark UI, keyboard navigation, loading/error/offline states; dashboard works without the AI.
 
@@ -97,7 +99,7 @@ MatchMind never scrapes websites or calls private endpoints. Every outgoing URL 
 
 ### Results and table: OpenFootball
 
-The default dataset is [Brasileiro Série A 2026](https://raw.githubusercontent.com/openfootball/football.json/master/2026/br.1.json). It supplies team names, dates, rounds and final scores — nothing else. The app uses the last three scored matches dated up to today in that dataset (not other competitions), accepts both published score formats, and distinguishes a 0–0 draw from a missing score. Names are matched case- and accent-insensitively, with Brazilian nicknames as aliases.
+The default dataset is [Brasileiro Série A 2026](https://raw.githubusercontent.com/openfootball/football.json/master/2026/br.1.json). It supplies team names, dates, rounds and final scores — nothing else. The app uses the last five scored matches dated up to today in that dataset (not other competitions), shows the club's next dated, non-postponed fixture from it, accepts both published score formats, and distinguishes a 0–0 draw from a missing score. Names are matched case- and accent-insensitively, with Brazilian nicknames as aliases.
 
 The table uses the Brasileirão criteria available from scores: points, wins, goal difference, goals scored (head-to-head and disciplinary criteria are not modeled). The dataset is cached in memory for five minutes, with coalesced downloads and a 15-second cooldown after failures; an unavailable source produces an explicit error, never substitute data. Supported leagues: `br.1` (all features), `en.1`, `de.1`, `es.1`, `it.1`, `fr.1` (results and table only).
 
@@ -105,7 +107,7 @@ The table uses the Brasileirão criteria available from scores: points, wins, go
 
 Sources are used in this order when enabled: **AlmanacStats** (`ALMANACSTATS=on`) → **API-Futebol** (`API_FUTEBOL_KEY`) → **API-Football** (`API_FOOTBALL_KEY`). A match receives data only when round/date, both clubs and the final score agree with OpenFootball; otherwise its statistics stay `null`. Failures never block the dashboard: `data_metadata.statistics_notice` explains them.
 
-- **AlmanacStats** (free, keyless) provides team statistics, goal and card events, stadium, referee, lineups and squads. MatchMind requests only the opened club (its profile plus up to three match pages), at most one request per second as the provider asks, and credits it in the UI.
+- **AlmanacStats** (free, keyless) provides team statistics, goal and card events, stadium, referee, lineups and squads. MatchMind requests only the opened club (its profile plus up to five match pages), at most one request per second as the provider asks, and credits it in the UI.
   > **Terms of use.** The API page invites free use with caching and attribution, but the site's [Terms and Conditions](https://almanacstats.com/terms-and-conditions) allow only personal, non-commercial use and forbid extracting substantial parts of the data, redistribution, derivative datasets and using the platform to "train, fine-tune or evaluate" AI models without a licence. MatchMind only passes the data to a local model as answer context and trains nothing, but a strict reading could still apply. It is **off by default**; ask AlmanacStats for written permission before using it beyond personal use.
 - **API-Futebol** (championship 10): rounds are linked by number. Test keys (`test_…`) return the same sample match for every request, so the UI labels them "dados de exemplo" and the backend appends a warning to AI answers that use them.
 - **API-Football** (league 71): the season fixture list is cached for six hours and finished matches forever, to stay within the free plan's 100 requests/day.
@@ -117,6 +119,20 @@ Sources are used in this order when enabled: **AlmanacStats** (`ALMANACSTATS=on`
 All four CSV files of the dataset are used: results, stadiums, coaches and formations (required), plus scorers (2014–2024), bookings (2014–2024) and per-match statistics (optional). For each club the snapshot's `history` contains titles, the all-time record, `seasons` (final position, points, record, coaches by matches in charge, formation, home stadium and per-match averages), `top_scorers` (own goals excluded), `discipline`, and head-to-head records with the last five `meetings` (stadium and scorers).
 
 Titles and positions come from each complete season's final table and match the official champions for 2003–2024. Seasons are inferred from dates (2020 ended in February 2021). Averages are computed only where the source actually filled them (2017–2023; 2016 and 2024 rows are mostly zeros). Scorers are shown only when they add up to the final score. Player and coach names appear as recorded by the source (often full legal names). A missing optional file is listed in `history.unavailable`. The dataset is cached for 12 hours; set `BRASILEIRAO_HISTORY=off` to disable it.
+
+### Season statistics: local FBref export (optional)
+
+Set `FBREF_DIR` to a folder of CSV exports of FBref's Série A tables (`times_padrao`, `times_finalizacao`, `times_finalizacao_adversarios`, `times_goleiros`, `times_diversos`, `classificacao`, `classificacao_casa_fora`, `jogos`, `jogadores_padrao`, `goleiros`). The folder is read once at start-up; nothing is downloaded. Clubs are matched to OpenFootball names through the shared aliases. The snapshot then carries `season_stats` (and `next_opponent_season`), the stadium becomes the venue of most home matches, and the UI shows the data date. FBref/Sports Reference terms restrict scraping and reuse: keep these files out of the repository and use them only locally. A missing file or column disables the source with a warning in the log.
+
+### Next-match simulation
+
+`POST /api/simulate` estimates the club's next fixture in three steps:
+
+1. **Base model (Go).** Poisson expected goals from each club's season attack and defense in the OpenFootball table (shrunk toward the league average) and the league's home edge, adjusted by bounded factors: season detail from FBref (goals and shots on target, for and against), each club's own home/away scoring, the last five results, rest (3 days or fewer, or 3+ matches in 10 days, cost goals) and the head-to-head record (Série A since 2003 plus this season, weighted by sample size).
+2. **AI analyst (Ollama).** With `use_ai`, the local model receives a compact summary of those facts and returns a bounded adjustment for each side (±15%) with a short reason; it becomes the `ai_analyst` factor. If the model is offline or too slow, the simulation continues without it and says so.
+3. **Draws (Go).** Each simulated match varies both sides' strength (log-normal, ±20% typical) and draws goals; the seed comes from the fixture and run count, so the same request repeats exactly.
+
+The percentages always come from the draws, never from the language model. Explaining a simulation in the chat reuses the AI-reviewed result the user just ran, prints its exact numbers first and lets the model explain the factors. **Injuries** are listed as a factor but are not used: no configured source provides them. Rest only counts league matches in the dataset. This is a statistical estimate, not a forecast.
 
 ### Club crests
 
@@ -212,6 +228,7 @@ POST requests require `Content-Type: application/json`; unknown fields and trail
 | `POST /api/team/resolve` `{"input": "Palmeiras"}` | Club snapshot: `team`, `recent_matches` (with `statistics`, `goals`, `cards`, `venue`, `referee`, `lineup_ref`), `recent_form`, `standings`, `squad`, `trophies`, `history`, `data_notice`, `data_metadata` |
 | `GET /api/standings` | League table with competition, season, source URL and retrieval time |
 | `GET /api/lineups/{ref}` | Both team sheets for a match's numeric `lineup_ref` (400 if invalid, 404 if unavailable) |
+| `POST /api/simulate` `{"team_id": "...", "runs": 10000, "use_ai": true}` | Next-fixture simulation: `win_pct`, `draw_pct`, `loss_pct`, expected goals, `top_scorelines`, `factors` (multipliers and reasons), last five results of both sides and `notes`; `runs` 1–10000 (default 50). With `use_ai` it shares the single inference slot (429 when busy). 404 when no fixture is scheduled |
 | `POST /api/chat` `{"team_id": "...", "question": "..."}` | `{"answer": "FATO: …\n\nINTERPRETAÇÃO: …", "sources_used": [...]}` |
 
 ```sh
