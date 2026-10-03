@@ -94,8 +94,9 @@ details[open] > summary.row::after { transform: translateY(2px) rotate(-135deg);
 
 .match::details-content { height: 0; overflow: clip; transition: height var(--dur) var(--ease-out), content-visibility var(--dur) allow-discrete; }
 .match[open]::details-content { height: auto; }
-/* Details align under the scoreline, not under the result square. */
-.details { display: grid; gap: var(--s-3); padding: var(--s-2) var(--s-2) var(--s-4) calc(var(--s-2) + 28px + 120px + var(--s-4) * 2); }
+/* Details sit under the scoreline (not under the result square) and share its center line. */
+.details { display: grid; justify-items: center; gap: var(--s-3); padding: var(--s-2) calc(var(--s-2) + 20px + var(--s-4)) var(--s-4) calc(var(--s-2) + 28px + 120px + var(--s-4) * 2); }
+.details > :not(.lineups-button) { width: min(100%, 560px); }
 .goals { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); font-size: var(--fs-xs); color: var(--text-2); }
 .goals ul { display: grid; gap: 6px; align-content: start; }
 .goals li { display: flex; gap: 6px; line-height: 1.4; overflow-wrap: anywhere; }
@@ -103,20 +104,22 @@ details[open] > summary.row::after { transform: translateY(2px) rotate(-135deg);
 .goals em { font-style: normal; color: var(--text-3); }
 .goals small { display: block; color: var(--text-3); font-size: var(--fs-2xs); }
 .minute { color: var(--accent); white-space: nowrap; }
-.place { display: flex; flex-wrap: wrap; gap: 2px var(--s-4); font-size: var(--fs-xs); color: var(--text-2); }
+.place { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px var(--s-4); text-align: center; font-size: var(--fs-xs); color: var(--text-2); }
 .place .label { color: var(--text-3); }
 .stats { max-width: 440px; }
+.details > .stats { width: min(100%, 440px); }
+.details > .muted { text-align: center; }
 .stats div { display: grid; grid-template-columns: 48px 1fr 48px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); font-size: var(--fs-xs); }
 .stats div:first-child { border-top: 0; }
 .stats dt { text-align: center; color: var(--text-3); }
 .stats dd { font-weight: 600; }
 .stats dd:last-child { text-align: right; }
-.cards-title { margin-bottom: var(--s-2); }
+.cards-title { margin-bottom: var(--s-2); text-align: center; }
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
 .cards ul { display: grid; gap: 6px; align-content: start; font-size: var(--fs-xs); color: var(--text-2); }
 .cards li { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
 .cards .home li { flex-direction: row-reverse; text-align: right; }
-.details :deep(.lineups-button) { justify-self: start; }
+.details :deep(.lineups-button) { justify-self: center; }
 
 @container (max-width: 640px) {
   .row { grid-template-columns: auto minmax(0, 1fr) 20px; grid-template-areas: "res when chev" "teams teams teams"; row-gap: var(--s-2); padding: var(--s-3) 0; }
