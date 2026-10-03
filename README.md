@@ -15,7 +15,7 @@ MatchMind is a Brasileirão dashboard with a Vue 3 interface (in Brazilian Portu
 
 ## Contents
 
-[Features](#features) · [Quick start](#quick-start) · [Data sources](#data-sources) · [Open-source AI](#open-source-ai) · [Architecture](#architecture) · [Configuration](#configuration) · [API](#api) · [Security](#security-and-operational-scope) · [Tests](#tests-and-builds) · [Contributing](#contributing) · [Hacktoberfest 2026](#hacktoberfest-2026) · [License](#license)
+[Features](#features) · [Quick start](#quick-start) · [Data sources](#data-sources) · [Next-match simulation](#next-match-simulation) · [Open-source AI](#open-source-ai) · [Architecture](#architecture) · [Configuration](#configuration) · [API](#api) · [Security](#security-and-operational-scope) · [Tests](#tests-and-builds) · [Contributing](#contributing) · [Hacktoberfest 2026](#hacktoberfest-2026) · [License](#license)
 
 ## Features
 
@@ -124,16 +124,6 @@ Titles and positions come from each complete season's final table and match the 
 
 Set `FBREF_DIR` to a folder of CSV exports of FBref's Série A tables (`times_padrao`, `times_finalizacao`, `times_finalizacao_adversarios`, `times_goleiros`, `times_diversos`, `classificacao`, `classificacao_casa_fora`, `jogos`, `jogadores_padrao`, `jogadores_tempo_jogo`, `jogadores_finalizacao`, `goleiros`). The folder is read once at start-up; nothing is downloaded. Clubs are matched to OpenFootball names through the shared aliases. The snapshot then carries `season_stats` (with `key_players` by on/off impact among regulars and `finishers` with shots, accuracy and goals per shot), `next_opponent_season` and `next_match_availability`: likely card suspensions for both sides (a red card, or the 3rd/6th/9th yellow, in the last league match, using the statistics source's cards for that match) and players one yellow away. Tribunal decisions and injuries are not known. The stadium becomes the venue of most home matches, and the UI shows the data date. FBref/Sports Reference terms restrict scraping and reuse: keep these files out of the repository and use them only locally. A missing file or column disables the source with a warning in the log.
 
-### Next-match simulation
-
-`POST /api/simulate` estimates the club's next fixture in three steps:
-
-1. **Base model (Go).** Poisson expected goals from each club's season attack and defense in the OpenFootball table (shrunk toward the league average) and the league's home edge, adjusted by bounded factors: season detail from FBref (goals and shots on target, for and against), each club's own home/away scoring, the last five results, rest (3 days or fewer, or 3+ matches in 10 days, cost goals), card suspensions (weighted by each absent player's minutes and on/off impact, capped at 12% per side) and the head-to-head record (Série A since 2003 plus this season, weighted by sample size).
-2. **AI analyst (Ollama).** With `use_ai`, the local model receives a compact summary of those facts (club names with their venue role, records written as sentences) and answers with a short reason, the club that deserves an extra edge (by name, or "nenhum") and a strength, `leve` (3%) or `moderado` (6%); it becomes the `ai_analyst` factor. The reason must name the chosen club, cite only numbers present in the facts and not argue for the other side; otherwise the adjustment is discarded and the page says why. If the model is offline or too slow, the simulation continues without it. A 4B model on CPU is a weak analyst, so its weight is kept small; a larger model (`OLLAMA_MODEL`) reasons better but is slower.
-3. **Draws (Go).** Each simulated match varies both sides' strength (log-normal, ±20% typical) and draws goals; the seed comes from the fixture and run count, so the same request repeats exactly.
-
-The percentages always come from the draws, never from the language model. Explaining a simulation in the chat reuses the AI-reviewed result the user just ran, prints its exact numbers first and lets the model explain the factors. **Injuries** are listed as a factor but are not used: no configured source provides them; card suspensions are. Rest only counts league matches in the dataset. This is a statistical estimate, not a forecast.
-
 ### Club crests
 
 All 20 Série A 2026 crests are bundled locally; nothing is fetched from third parties while using the dashboard. Unknown clubs and failed images fall back to initials. Provenance, authors, licenses and SHA-256 hashes are in the [crest manifest](frontend/public/crests/manifest.json) and the [credits page](frontend/public/crests/credits.html).
@@ -147,6 +137,88 @@ Seventeen files are public domain on Wikimedia Commons and the Corinthians image
 3. Return completed matches newest first, propagate `context.Context`, set timeouts, and use `nil`/empty values for missing data — never fabricated zeros.
 4. Wire it in `cmd/server/main.go` behind explicit configuration; keep credentials in backend environment variables only.
 5. Add `httptest` fixture tests and document provenance, freshness and limits.
+
+## Next-match simulation
+
+For the selected club's next league fixture, MatchMind compares both sides and estimates the result by **simulating the match many times**. A deterministic Go model does the math, the local AI reviews it, and the draws are counted in Go, so the percentages are reproducible and never invented by the language model.
+
+![Next-match card with the simulation](docs/screenshots/simulation.png)
+
+### What the page shows
+
+The **Próximo jogo** card on the dashboard has three parts:
+
+1. **The fixture**: date, local kick-off time, round, opponent and whether the club plays at home or away (from the OpenFootball feed).
+2. **Como chegam** (how both sides arrive): last five results of each club, each one's record in its role for this match (home vs. away, points per match), likely **card suspensions** and players **one yellow away** (*pendurados*), and season numbers side by side (goals for and against per match, shots on target, goalkeeper save %), with the better value highlighted. Season numbers need the optional [FBref export](#season-statistics-local-fbref-export-optional).
+3. **Simulação do jogo**: pick **50, 1,000 or 10,000** simulated matches and press *Simular*. While the local AI works, short status phrases rotate with a seconds counter. The result shows:
+   - win / draw / loss percentages from the selected club's side, with a proportional bar;
+   - the **AI analyst's reason** for its adjustment (marked as generated text);
+   - expected goals for both sides, the last five results and the five most simulated scores;
+   - the **factor table**: how each input moved each side's expected goals (see below);
+   - notes about the data (e.g. rest only counts league matches; 50 runs are noisy);
+   - **Explicar com a IA**, which sends the result to the chat for a written explanation.
+
+### How it works
+
+`POST /api/simulate` (and the button) runs three steps:
+
+1. **Base model (Go).** Expected goals start from each club's season attack and defense in the OpenFootball table, shrunk toward the league average so early seasons are not extreme. Bounded factors then multiply each side's expected goals.
+2. **AI analyst (Ollama, optional).** The local model reviews a short summary of all those facts and may give one club a small extra edge (details below).
+3. **Draws (Go).** Each simulated match varies both sides' strength (log-normal, about ±20%) and draws the goals from a Poisson distribution. The random seed comes from the fixture and the run count, so the same request always returns the same numbers.
+
+| Factor (UI label) | Source | Effect |
+| --- | --- | --- |
+| Força na temporada (base) | OpenFootball table | Starting expected goals of each side, shown in goals |
+| Mando de campo (média da liga) | This season's matches | League-wide home edge, e.g. home +14% / away −14% |
+| Estatísticas da temporada | FBref export | Goals and shots on target, for and against, vs. the league average; blended 50/50 with the base, ±15% max |
+| Campanha em casa e fora | FBref export | Each club's scoring in this match's role compared with its own average, *beyond* the league home edge, ±15% max |
+| Últimos 5 jogos | OpenFootball | Recent scoring/conceding blended (30%) into the season rates, ±20% max |
+| Sequência e descanso | OpenFootball dates | 2 days or fewer −8%, 3 days −4%, 3+ matches in 10 days −3%; a tired side also concedes a bit more |
+| Suspensões por cartão | AlmanacStats cards + FBref totals | A red card or the 3rd/6th/9th yellow in the last league match; weighted by the player's minutes and on/off impact, ±12% per side max |
+| Lesionados | — | Shown but **not used**: no configured source provides injuries |
+| Confrontos históricos | Série A dataset (since 2003) + this season | Points share against this opponent, weighted by sample size (15 meetings carry half the weight), ±15% max |
+| Análise da IA (Gemma local) | Ollama | `leve` 3% or `moderado` 6% for the club it picks, or nothing |
+| Aleatoriedade | — | Day-to-day ±20% noise in every simulated match |
+
+Reading the table: **+x% / −x%** is the change to that side's expected goals; **0%** means the factor ran but changed nothing, and its text says why (e.g. nobody played within 3 days, a balanced or tiny head-to-head sample); **—** means not used. The base row shows goals instead of a percentage.
+
+### The AI analyst and its safeguards
+
+With `use_ai: true` (always on in the UI) the backend sends the model the base expected goals, every applied factor with its explanation, both clubs' season metrics and each club's record **in its role for this match**, written as sentences with club names ("Grêmio FBPA fora: 14 jogos, 0 vitórias, 4 empates, 10 derrotas, 8 gols marcados e 22 gols sofridos"). The model answers in a constrained JSON format:
+
+- `reason` first (at most two sentences in Portuguese), then
+- `favored`: the exact name of one of the two clubs, or `"nenhum"`;
+- `strength`: `leve` (3%) or `moderado` (6%).
+
+Go turns that choice into the multipliers; the model never writes numbers for the simulation. The adjustment is **discarded** (and the page says so) when the reason does not name the chosen club, cites a number that is not in the facts, or argues for the other side. If Ollama is offline or too slow, the simulation runs without the AI step. Analyst calls share the API's single inference slot with the chat (HTTP 429 while busy).
+
+These checks catch invented numbers and contradictions, not every weak argument: on CPU, `gemma3:4b` is a modest analyst, which is why its weight is kept at 3–6%.
+
+### Explaining a result in the chat
+
+*Explicar com a IA* asks the chat about the simulation. The backend reuses the AI-reviewed result the user just ran (kept in memory for 15 minutes for the same fixture), sends the model a compact context with ready-made sentences ("SE Palmeiras vence em 59,6%…", "SE Palmeiras 1 x 0 EC Bahia: 12,3%") and factors ordered by weight, and prints the **exact** result above the model's answer. The model only explains which factors weighed most. Questions such as "qual a chance do Palmeiras?" typed in the chat use the same path (a quick simulation without the AI step when none was run).
+
+### Example
+
+Palmeiras x Bahia (round 29), 10,000 simulations, real data and `gemma3:4b`, October 3, 2026:
+
+| | Palmeiras | Draw | Bahia |
+| --- | --- | --- | --- |
+| Result | **59.6%** | 22.6% | 17.8% |
+| Expected goals | 1.83 | | 0.86 |
+
+Most simulated scores: 1–0 (12.3%), 2–0 (10.8%), 1–1 (10.7%), 2–1 (9.1%), 0–0 (7.2%). Biggest factors: home advantage (+14% / −14%), Bahia's away scoring (+11%) and head-to-head (21 meetings, 11W 8D 2L: +3% / −3%); the AI analyst favored Palmeiras (`leve`) citing goals conceded per match (0.75 vs. 1.29).
+
+### Performance and hardware
+
+On an 8-core CPU without GPU, with `gemma3:4b`: the simulation without AI takes a second or two (data is cached); with the AI step about 25–90 s; a chat explanation about 100–160 s (`OLLAMA_TIMEOUT=240s` covers both). `gemma3:12b` reasons better but needs about 9 GB of **free** RAM; with less, the operating system kills the model process and the simulation continues without the AI step. A 7–8B model is a middle ground on 16 GB machines.
+
+### Limitations
+
+- A statistical estimate from league data, not a forecast: no injuries, tribunal (STJD) decisions, lineups, weather or news.
+- Rest and suspensions count only league matches in the dataset; cups and other competitions are not included.
+- FBref numbers are a dated local copy (the date is shown); suspensions assume the season totals and the last match's cards are complete.
+- 50 simulations vary by several points between fixtures; use 1,000 or 10,000 for stable percentages.
 
 ## Open-source AI
 
@@ -206,6 +278,7 @@ matchmind/
 | `OPENFOOTBALL_SEASON` | `2026` | Season directory, e.g. `2026` or `2026-27` |
 | `BRASILEIRAO_HISTORY` | `on` | `off` disables the Série A history download (`br.1` only) |
 | `ALMANACSTATS` | `off` | `on` enables AlmanacStats statistics, squads and lineups (`br.1`); read its terms |
+| `FBREF_DIR` | — | Folder of a local FBref CSV export: season panel, key players, finishers, suspensions and the simulation's season factors ([details](#season-statistics-local-fbref-export-optional)) |
 | `API_FUTEBOL_KEY` | empty | API-Futebol key for match statistics (`br.1`) |
 | `API_FOOTBALL_KEY` | empty | API-Football key for match statistics (`br.1`) |
 | `DATABASE_URL` | empty | PostgreSQL URL for the response cache; empty keeps it in memory |
