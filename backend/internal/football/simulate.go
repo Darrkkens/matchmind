@@ -43,6 +43,9 @@ type SimulationFactor struct {
 	Opponent  float64 `json:"opponent"`
 	Detail    string  `json:"detail"`
 	Available bool    `json:"available"`
+	// For the base factor: expected goals of each side before any adjustment.
+	ClubValue     float64 `json:"club_value,omitempty"`
+	OpponentValue float64 `json:"opponent_value,omitempty"`
 }
 
 // SimulationInput is everything the model reads; built from the season dataset and history.
@@ -69,8 +72,8 @@ type SimulationAdjustment struct {
 	Model    string  `json:"model"`
 }
 
-// MaxAnalystSwing bounds the AI analyst's adjustment (±15%).
-const MaxAnalystSwing = 0.15
+// MaxAnalystSwing bounds the AI analyst's adjustment (the analyst itself uses 3% or 6%).
+const MaxAnalystSwing = 0.06
 
 const (
 	maxSimulationRuns = 10000
@@ -128,8 +131,8 @@ func Simulate(in SimulationInput, runs int) (*Simulation, error) {
 	if clubHome {
 		clubEdge, oppEdge = homeEdge, awayEdge
 	}
-	lambdaClub := mu * clubAtt * oppDef * clubEdge
-	lambdaOpp := mu * oppAtt * clubDef * oppEdge
+	lambdaClub := mu * clubAtt * oppDef
+	lambdaOpp := mu * oppAtt * clubDef
 
 	sim := &Simulation{Runs: runs, Fixture: f, ClubID: club.ID, Factors: []SimulationFactor{}, Notes: []string{}}
 	seasonMetric := func(st *SeasonStats, key string) (SeasonMetric, bool) {
@@ -144,8 +147,12 @@ func Simulate(in SimulationInput, runs int) (*Simulation, error) {
 		return SeasonMetric{}, false
 	}
 	pct := func(m float64) string { return fmt.Sprintf("%+.0f%%", (m-1)*100) }
-	sim.Factors = append(sim.Factors, SimulationFactor{Key: "season", Club: 1, Opponent: 1, Available: true,
-		Detail: fmt.Sprintf("Base: média da liga %.2f gols por time e jogo, ataque e defesa de cada clube na temporada; mando de campo %s para o mandante", mu, pct(homeEdge))})
+	sim.Factors = append(sim.Factors, SimulationFactor{Key: "season", Club: 1, Opponent: 1, Available: true, ClubValue: round2(lambdaClub), OpponentValue: round2(lambdaOpp),
+		Detail: fmt.Sprintf("Ponto de partida: gols esperados só pelo ataque e pela defesa de cada clube na temporada (média da liga: %.2f gols por time e jogo); os fatores abaixo ajustam esses valores", mu)})
+	// League-wide home advantage, shown on its own so it is visible which side it helps.
+	lambdaClub, lambdaOpp = lambdaClub*clubEdge, lambdaOpp*oppEdge
+	sim.Factors = append(sim.Factors, SimulationFactor{Key: "home_edge", Club: round2(clubEdge), Opponent: round2(oppEdge), Available: n > 0,
+		Detail: fmt.Sprintf("Vantagem média do mando nesta liga: mandantes marcam %s e visitantes %s em relação à média; %s joga em casa", pct(homeEdge), pct(awayEdge), f.HomeTeam.Name)})
 
 	// Season detail: scoring and chance creation/concession from the season source, blended
 	// half-and-half with the score-only rates above (shots on target are steadier than goals).
@@ -191,7 +198,7 @@ func Simulate(in SimulationInput, runs int) (*Simulation, error) {
 		lambdaClub, lambdaOpp = lambdaClub*vc, lambdaOpp*vo
 		where := map[bool]string{true: "em casa", false: "fora"}
 		sim.Factors = append(sim.Factors, SimulationFactor{Key: "venue", Club: round2(vc), Opponent: round2(vo), Available: true,
-			Detail: fmt.Sprintf("Mando: %s %s %dV %dE %dD (%d:%d), %s %s %dV %dE %dD (%d:%d)", club.Name, where[clubHome], rc.Wins, rc.Draws, rc.Losses, rc.GoalsFor, rc.GoalsAgainst, opp.Name, where[!clubHome], ro.Wins, ro.Draws, ro.Losses, ro.GoalsFor, ro.GoalsAgainst)})
+			Detail: fmt.Sprintf("Além da vantagem média do mando: compara os gols de cada time neste mando com a própria média. %s %s %dV %dE %dD (%d:%d), %s %s %dV %dE %dD (%d:%d)", club.Name, where[clubHome], rc.Wins, rc.Draws, rc.Losses, rc.GoalsFor, rc.GoalsAgainst, opp.Name, where[!clubHome], ro.Wins, ro.Draws, ro.Losses, ro.GoalsFor, ro.GoalsAgainst)})
 	} else {
 		sim.Factors = append(sim.Factors, SimulationFactor{Key: "venue", Club: 1, Opponent: 1, Detail: "Campanha em casa e fora indisponível"})
 	}
@@ -286,7 +293,7 @@ func Simulate(in SimulationInput, runs int) (*Simulation, error) {
 		mc, mo := fc*(1+(1-fo)/2), fo*(1+(1-fc)/2)
 		lambdaClub, lambdaOpp = lambdaClub*mc, lambdaOpp*mo
 		sim.Factors = append(sim.Factors, SimulationFactor{Key: "rest", Club: round2(mc), Opponent: round2(mo), Available: true,
-			Detail: fmt.Sprintf("Descanso: %s %d dias (%d jogos em 10 dias), %s %d dias (%d jogos em 10 dias); 3 dias ou menos pesam", club.Name, cd, cc, opp.Name, od, oc)})
+			Detail: fmt.Sprintf("Descanso: %s %d dias (%d jogos em 10 dias), %s %d dias (%d jogos em 10 dias); 3 dias ou menos pesam", club.Name, cd, cc, opp.Name, od, oc) + noEffect(mc, mo, "nenhum dos dois jogou há 3 dias ou menos")})
 		sim.Notes = append(sim.Notes, "O descanso considera só jogos desta liga; copas e outras competições não estão nos dados.")
 	} else {
 		sim.Factors = append(sim.Factors, SimulationFactor{Key: "rest", Club: 1, Opponent: 1, Detail: "Datas dos jogos anteriores indisponíveis"})
@@ -330,7 +337,7 @@ func Simulate(in SimulationInput, runs int) (*Simulation, error) {
 		m := 1 + h2hWeight*weight*(2*share-1)
 		lambdaClub, lambdaOpp = lambdaClub*m, lambdaOpp/m
 		sim.Factors = append(sim.Factors, SimulationFactor{Key: "head_to_head", Club: round2(m), Opponent: round2(1 / m), Available: true,
-			Detail: fmt.Sprintf("Confrontos (Série A desde 2003 e esta temporada): %d jogos, %dV %dE %dD, gols %d:%d", meetings, w, d, l, gf, ga)})
+			Detail: fmt.Sprintf("Confrontos (Série A desde 2003 e esta temporada): %d jogos, %dV %dE %dD, gols %d:%d; peso da amostra %.0f%%", meetings, w, d, l, gf, ga, weight*100) + noEffect(m, 1/m, "retrospecto equilibrado ou amostra pequena demais")})
 	} else {
 		sim.Factors = append(sim.Factors, SimulationFactor{Key: "head_to_head", Club: 1, Opponent: 1, Detail: "Sem confrontos registrados"})
 	}
@@ -394,6 +401,14 @@ func poisson(rng *rand.Rand, lambda float64) int {
 		}
 		k++
 	}
+}
+
+// noEffect explains, in the detail text, why an applied factor left both sides unchanged.
+func noEffect(club, opponent float64, why string) string {
+	if round2(club) == 1 && round2(opponent) == 1 {
+		return " → sem efeito: " + why
+	}
+	return ""
 }
 
 func clamp(v, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, v)) }

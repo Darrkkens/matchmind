@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"matchmind/internal/ai"
 	"matchmind/internal/football"
 	"strings"
@@ -141,7 +142,11 @@ func (s *TeamService) Simulate(ctx context.Context, id string, runs int, withAI 
 		if err == nil {
 			in.Analyst, err = s.Analyst.AnalyzeMatch(ctx, facts)
 		}
-		if err != nil {
+		switch {
+		case errors.Is(err, ai.ErrUngroundedReason):
+			in.Analyst = nil
+			aiNote = "A IA local respondeu, mas a justificativa dela não batia com os dados (números inexistentes ou argumento contrário ao ajuste); o ajuste não foi aplicado."
+		case err != nil:
 			aiNote = "A IA local não respondeu a tempo; a simulação seguiu sem o ajuste dela."
 		}
 	}

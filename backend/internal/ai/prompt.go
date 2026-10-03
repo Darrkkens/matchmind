@@ -368,7 +368,7 @@ type Answer struct {
 	SourcesUsed []string `json:"sources_used"`
 }
 
-var factorNames = map[string]string{"season": "Força na temporada", "season_detail": "Estatísticas da temporada", "venue": "Campanha em casa e fora", "form": "Últimos 5 jogos", "rest": "Sequência e descanso", "injuries": "Lesionados", "suspensions": "Suspensões por cartão", "head_to_head": "Confrontos históricos", "ai_analyst": "Análise da IA", "randomness": "Aleatoriedade"}
+var factorNames = map[string]string{"season": "Força na temporada", "home_edge": "Mando de campo (média da liga)", "season_detail": "Estatísticas da temporada", "venue": "Campanha em casa e fora", "form": "Últimos 5 jogos", "rest": "Sequência e descanso", "injuries": "Lesionados", "suspensions": "Suspensões por cartão", "head_to_head": "Confrontos históricos", "ai_analyst": "Análise da IA", "randomness": "Aleatoriedade"}
 
 // simulationContext pre-renders the simulation as short Portuguese sentences with club names,
 // so a small model cannot swap sides or misattribute a factor's number.

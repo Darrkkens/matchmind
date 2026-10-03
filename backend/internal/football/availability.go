@@ -121,5 +121,5 @@ func suspensionFactor(club, opp *Availability, clubName, oppName string) (Simula
 	mc := (1 - 0.6*wc) * (1 + 0.4*wo)
 	mo := (1 - 0.6*wo) * (1 + 0.4*wc)
 	return SimulationFactor{Key: "suspensions", Club: round2(mc), Opponent: round2(mo), Available: true,
-		Detail: fmt.Sprintf("Suspensos por cartão: %s: %s; %s: %s", clubName, nc, oppName, no)}, true
+		Detail: fmt.Sprintf("Suspensos por cartão: %s: %s; %s: %s", clubName, nc, oppName, no) + noEffect(mc, mo, "nenhum suspenso relevante")}, true
 }

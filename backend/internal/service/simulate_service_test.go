@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"matchmind/internal/ai"
 	"matchmind/internal/football"
 )
 
@@ -45,13 +47,13 @@ func factor(sim *football.Simulation, key string) football.SimulationFactor {
 }
 
 func TestSimulateWithAnalystAppliesAndCaches(t *testing.T) {
-	analyst := &fakeAnalyst{adj: &football.SimulationAdjustment{Club: 1.1, Opponent: 0.95, Reason: "Alpha cria mais chances."}}
+	analyst := &fakeAnalyst{adj: &football.SimulationAdjustment{Club: 1.03, Opponent: 0.97, Reason: "Alpha cria mais chances."}}
 	s := &TeamService{Provider: simProvider(), Analyst: analyst}
 	sim, err := s.Simulate(context.Background(), "a", 200, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := factor(sim, "ai_analyst"); !f.Available || f.Club != 1.1 || analyst.calls != 1 {
+	if f := factor(sim, "ai_analyst"); !f.Available || f.Club != 1.03 || analyst.calls != 1 {
 		t.Fatalf("analyst factor %+v calls %d", f, analyst.calls)
 	}
 	fixture := sim.Fixture
@@ -84,5 +86,17 @@ func TestSimulateFallsBackWithoutAnalyst(t *testing.T) {
 	noAI, _ := s.Simulate(context.Background(), "a", 50, false)
 	if f := factor(noAI, "ai_analyst"); f.Available || analyst.calls != 1 {
 		t.Fatal("use_ai=false must not call the AI")
+	}
+}
+
+func TestSimulateDropsUngroundedAnalystAdjustment(t *testing.T) {
+	analyst := &fakeAnalyst{err: ai.ErrUngroundedReason}
+	s := &TeamService{Provider: simProvider(), Analyst: analyst}
+	sim, err := s.Simulate(context.Background(), "a", 50, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := factor(sim, "ai_analyst"); f.Available || !strings.Contains(f.Detail, "não foi aplicado") {
+		t.Fatalf("ungrounded adjustment must not be applied: %+v", f)
 	}
 }

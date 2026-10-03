@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { api } from '../services/api'
-import type { Fixture, Simulation } from '../types/football'
+import type { Fixture, Simulation, SimulationFactor } from '../types/football'
 import { errorMessage, outcomeLabel, outcomeLetter } from '../utils/format'
 import { useRotatingText } from '../composables/useRotatingText'
 
@@ -9,7 +9,7 @@ const props = defineProps<{ fixture: Fixture; teamId: string }>()
 const emit = defineEmits<{ explain: [question: string] }>()
 
 const RUN_OPTIONS = [50, 1000, 10000]
-const factorLabels: Record<string, string> = { season: 'Força na temporada', season_detail: 'Estatísticas da temporada', venue: 'Campanha em casa e fora', form: 'Últimos 5 jogos', rest: 'Sequência e descanso', injuries: 'Lesionados', suspensions: 'Suspensões por cartão', head_to_head: 'Confrontos históricos', ai_analyst: 'Análise da IA (Gemma local)', randomness: 'Aleatoriedade' }
+const factorLabels: Record<string, string> = { season: 'Força na temporada (base)', home_edge: 'Mando de campo (média da liga)', season_detail: 'Estatísticas da temporada', venue: 'Campanha em casa e fora', form: 'Últimos 5 jogos', rest: 'Sequência e descanso', injuries: 'Lesionados', suspensions: 'Suspensões por cartão', head_to_head: 'Confrontos históricos', ai_analyst: 'Análise da IA (Gemma local)', randomness: 'Aleatoriedade' }
 const runs = ref(RUN_OPTIONS[0])
 const result = ref<Simulation | null>(null)
 const loading = ref(false)
@@ -40,7 +40,14 @@ const outcomes = computed(() => result.value && [
   { key: 'D', label: 'Empate', value: result.value.draw_pct },
   { key: 'L', label: `Vitória ${opponent.value.name}`, value: result.value.loss_pct },
 ])
-const effect = (m: number) => m === 1 ? '—' : `${m > 1 ? '+' : '−'}${Math.round(Math.abs(m - 1) * 100)}%`
+const effect = (m: number) => Math.round((m - 1) * 100) === 0 ? '0%' : `${m > 1 ? '+' : '−'}${Math.round(Math.abs(m - 1) * 100)}%`
+// What each factor cell shows: base expected goals, the noise range, or the % change; '—' when not used.
+function cell(f: SimulationFactor, side: 'club' | 'opponent') {
+  if (!f.available) return '—'
+  if (f.key === 'season') return `${decimal(side === 'club' ? f.club_value ?? 0 : f.opponent_value ?? 0)} gol`
+  if (f.key === 'randomness') return '±20%'
+  return effect(f[side])
+}
 const analyst = computed(() => result.value?.factors.find((f) => f.key === 'ai_analyst' && f.available))
 const decimal = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
 
@@ -97,6 +104,7 @@ function explain() {
       <blockquote v-if="analyst" class="analyst">
         <p class="eyebrow">Análise da IA · ajuste {{ effect(analyst.club) }} / {{ effect(analyst.opponent) }}</p>
         <p>{{ analyst.detail }}</p>
+        <p class="analyst-note">Texto gerado pela IA local (Gemma); números conferidos com os dados, mas a redação pode conter imprecisões.</p>
       </blockquote>
 
       <div class="facts">
@@ -113,13 +121,13 @@ function explain() {
       </div>
 
       <table class="factors">
-        <caption class="eyebrow">Fatores · efeito nos gols esperados</caption>
+        <caption class="eyebrow">Fatores · efeito nos gols esperados (0% = sem efeito, motivo no texto)</caption>
         <thead><tr><th scope="col">Fator</th><th scope="col" class="num">{{ club.short_name || club.name }}</th><th scope="col" class="num">{{ opponent.short_name || opponent.name }}</th></tr></thead>
         <tbody>
           <tr v-for="f in result.factors" :key="f.key" :class="{ off: !f.available }">
             <th scope="row"><span class="name">{{ factorLabels[f.key] ?? f.key }}<small v-if="!f.available"> · não usado</small></span><span class="detail">{{ f.detail }}</span></th>
-            <td :class="['num', { up: f.club > 1, down: f.club < 1 }]">{{ effect(f.club) }}</td>
-            <td :class="['num', { up: f.opponent > 1, down: f.opponent < 1 }]">{{ effect(f.opponent) }}</td>
+            <td :class="['num', { up: f.club > 1.005, down: f.club < 0.995 }]">{{ cell(f, 'club') }}</td>
+            <td :class="['num', { up: f.opponent > 1.005, down: f.opponent < 0.995 }]">{{ cell(f, 'opponent') }}</td>
           </tr>
         </tbody>
       </table>
@@ -201,7 +209,8 @@ h3 { font-size: var(--fs-base); font-weight: 600; }
 @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 .analyst { margin: 0; padding: var(--s-3) var(--s-4); border-left: 2px solid var(--accent); background: var(--accent-soft); border-radius: 0 var(--r-sm) var(--r-sm) 0; display: grid; gap: var(--s-1); }
 .analyst .eyebrow { color: var(--accent); }
-.analyst p:last-child { font-size: var(--fs-sm); line-height: 1.6; }
+.analyst p:nth-child(2) { font-size: var(--fs-sm); line-height: 1.6; }
+.analyst-note { font-size: var(--fs-2xs); color: var(--text-3); }
 @container (max-width: 640px) {
   .label, .last5 .label, .scorelines .label { min-width: 0; display: block; width: 100%; }
   .outcomes strong { font-size: var(--fs-lg); }

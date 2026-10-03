@@ -28,7 +28,7 @@ export interface Finisher { player: string; goals: number; shots: number; shots_
 export interface Availability { suspended: { player: string; reason: string; minutes_pct?: number; on_off?: number }[]; at_risk: string[]; note?: string }
 export interface MatchAvailability { club?: Availability; opponent?: Availability }
 // Monte Carlo estimate for the next fixture from the selected club's side (percentages 0–100).
-export interface SimulationFactor { key: string; club: number; opponent: number; detail: string; available: boolean }
+export interface SimulationFactor { key: string; club: number; opponent: number; detail: string; available: boolean; club_value?: number; opponent_value?: number }
 export interface Simulation { runs: number; seed: number; fixture: Fixture; club_id: string; win_pct: number; draw_pct: number; loss_pct: number; expected_goals_club: number; expected_goals_opponent: number; top_scorelines: { club: number; opponent: number; percent: number }[]; factors: SimulationFactor[]; club_last5: string[]; opponent_last5: string[]; notes: string[] }
 export interface ChatAnswer { answer: string; sources_used: string[] }
 export interface Health { status: string; ollama: boolean; football_provider: boolean; data_source: string }
